@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from sglang_omni.config import (
     ExecutorConfig,
@@ -104,7 +104,7 @@ class Qwen3OmniPipelineConfig(PipelineConfig):
         # TODO: we need to refactor this factory pattern to avoid
         for stage in self.stages:
             if stage.name != AGGREGATE_STAGE:
-                stage.executor.args["model_id"] = self.model_path
+                stage.executor.args["model_path"] = self.model_path
 
 
 EntryClass = Qwen3OmniPipelineConfig
