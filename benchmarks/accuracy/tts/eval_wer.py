@@ -6,19 +6,19 @@ Supports both English (Whisper-large-v3) and Chinese (FunASR paraformer-zh).
 
 Usage:
     # English
-    CUDA_VISIBLE_DEVICES=7 python benchmarks/eval_wer.py \
+    CUDA_VISIBLE_DEVICES=7 python benchmarks/accuracy/tts/eval_wer.py \
         --meta /tmp/seed-tts-eval/seedtts_testset/en/meta.lst \
         --audio-dir results/s2pro_compile_eager/audio \
         --lang en
 
     # Chinese
-    CUDA_VISIBLE_DEVICES=7 python benchmarks/eval_wer.py \
+    CUDA_VISIBLE_DEVICES=7 python benchmarks/accuracy/tts/eval_wer.py \
         --meta /tmp/seed-tts-eval/seedtts_testset/zh/meta.lst \
         --audio-dir results/s2pro_zh/audio \
         --lang zh
 
     # Chinese hard cases
-    CUDA_VISIBLE_DEVICES=7 python benchmarks/eval_wer.py \
+    CUDA_VISIBLE_DEVICES=7 python benchmarks/accuracy/tts/eval_wer.py \
         --meta /tmp/seed-tts-eval/seedtts_testset/zh/hardcase.lst \
         --audio-dir results/s2pro_zh_hard/audio \
         --lang zh
@@ -138,6 +138,8 @@ def transcribe(asr, wav_path: str, lang: str, device: str) -> str:
         res = asr["model"].generate(input=wav_path, batch_size_s=300)
         transcription = res[0]["text"]
         return zhconv.convert(transcription, "zh-cn")
+    else:
+        raise ValueError(f"Unknown ASR type: {asr['type']}")
 
 
 def main(args):
