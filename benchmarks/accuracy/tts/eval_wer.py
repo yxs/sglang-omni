@@ -4,12 +4,22 @@
 
 Supports both English (Whisper-large-v3) and Chinese (FunASR paraformer-zh).
 
+Reports both corpus-level WER (micro-average, primary metric) and per-sample
+WER statistics (mean, median, std, p95) as secondary diagnostics.
+
 Usage:
     # English
     CUDA_VISIBLE_DEVICES=7 python benchmarks/accuracy/tts/eval_wer.py \
         --meta /tmp/seed-tts-eval/seedtts_testset/en/meta.lst \
         --audio-dir results/s2pro_compile_eager/audio \
         --lang en
+
+    # English (local whisper model)
+    CUDA_VISIBLE_DEVICES=7 python benchmarks/accuracy/tts/eval_wer.py \
+        --meta /tmp/seed-tts-eval/seedtts_testset/en/meta.lst \
+        --audio-dir results/s2pro_compile_eager/audio \
+        --lang en \
+        --whisper-model /path/to/whisper-large-v3
 
     # Chinese
     CUDA_VISIBLE_DEVICES=7 python benchmarks/accuracy/tts/eval_wer.py \
@@ -90,16 +100,15 @@ def normalize_text(text: str, lang: str) -> str:
     return text
 
 
-def load_asr_model(lang: str, device: str):
+def load_asr_model(lang: str, device: str, model_path: str | None = None):
     if lang == "en":
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-        logger.info("Loading Whisper-large-v3...")
+        whisper_id = model_path or "openai/whisper-large-v3"
+        logger.info("Loading Whisper-large-v3 from %s ...", whisper_id)
         t0 = time.perf_counter()
-        processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
-        model = WhisperForConditionalGeneration.from_pretrained(
-            "openai/whisper-large-v3"
-        ).to(device)
+        processor = WhisperProcessor.from_pretrained(whisper_id)
+        model = WhisperForConditionalGeneration.from_pretrained(whisper_id).to(device)
         logger.info("Whisper loaded in %.1fs", time.perf_counter() - t0)
         return {"type": "whisper", "processor": processor, "model": model}
     elif lang == "zh":
@@ -147,7 +156,7 @@ def main(args):
     device = args.device
 
     # Load ASR
-    asr = load_asr_model(lang, device)
+    asr = load_asr_model(lang, device, model_path=args.whisper_model)
 
     # Parse samples
     samples = parse_meta_lst(args.meta)
@@ -190,6 +199,7 @@ def main(args):
                 "substitutions": measures.substitutions,
                 "deletions": measures.deletions,
                 "insertions": measures.insertions,
+                "hits": measures.hits,
             }
         )
 
@@ -197,19 +207,37 @@ def main(args):
     wers = [r["wer"] for r in results]
     wer_arr = np.array(wers)
 
+    # Corpus WER (micro-average): total errors / total reference words
+    total_sub = sum(r["substitutions"] for r in results)
+    total_del = sum(r["deletions"] for r in results)
+    total_ins = sum(r["insertions"] for r in results)
+    total_hits = sum(r["hits"] for r in results)
+    total_ref_words = total_sub + total_del + total_hits
+    corpus_wer = (total_sub + total_del + total_ins) / total_ref_words if total_ref_words > 0 else 0
+
     n_above_50 = int(np.sum(wer_arr > 0.5))
     wers_below_50 = wer_arr[wer_arr <= 0.5]
+
+    # Corpus WER excluding >50% samples
+    results_below_50 = [r for r in results if r["wer"] <= 0.5]
+    sub_b50 = sum(r["substitutions"] for r in results_below_50)
+    del_b50 = sum(r["deletions"] for r in results_below_50)
+    ins_b50 = sum(r["insertions"] for r in results_below_50)
+    hits_b50 = sum(r["hits"] for r in results_below_50)
+    ref_b50 = sub_b50 + del_b50 + hits_b50
+    corpus_wer_below_50 = (sub_b50 + del_b50 + ins_b50) / ref_b50 if ref_b50 > 0 else 0
 
     summary = {
         "lang": lang,
         "total_samples": len(samples),
         "evaluated": len(results),
         "skipped": skipped,
+        "corpus_wer": float(corpus_wer),
+        "corpus_wer_below_50": float(corpus_wer_below_50),
         "wer_mean": float(np.mean(wer_arr)) if len(wer_arr) else 0,
         "wer_median": float(np.median(wer_arr)) if len(wer_arr) else 0,
         "wer_std": float(np.std(wer_arr)) if len(wer_arr) else 0,
         "wer_p95": float(np.percentile(wer_arr, 95)) if len(wer_arr) else 0,
-        "wer_below_50_mean": float(np.mean(wers_below_50)) if len(wers_below_50) else 0,
         "n_above_50_pct_wer": n_above_50,
         "pct_above_50_pct_wer": n_above_50 / len(results) * 100 if results else 0,
     }
@@ -230,12 +258,15 @@ def main(args):
     print("=" * 52)
     print(f"  Evaluated:           {len(results)}/{len(samples)}")
     print(
-        f"  WER mean:            {summary['wer_mean']:.4f} ({summary['wer_mean']*100:.2f}%)"
+        f"  Corpus WER:          {summary['corpus_wer']:.4f} ({summary['corpus_wer']*100:.2f}%)"
     )
-    print(f"  WER median:          {summary['wer_median']:.4f}")
     print(
-        f"  WER (excl >50%):     {summary['wer_below_50_mean']:.4f} ({summary['wer_below_50_mean']*100:.2f}%)"
+        f"  Corpus WER (excl>50%): {summary['corpus_wer_below_50']:.4f} ({summary['corpus_wer_below_50']*100:.2f}%)"
     )
+    print(f"  WER mean (per-sample): {summary['wer_mean']:.4f} ({summary['wer_mean']*100:.2f}%)")
+    print(f"  WER median:          {summary['wer_median']:.4f}")
+    print(f"  WER std:             {summary['wer_std']:.4f}")
+    print(f"  WER p95:             {summary['wer_p95']:.4f}")
     print(
         f"  Samples >50% WER:    {n_above_50} ({summary['pct_above_50_pct_wer']:.1f}%)"
     )
@@ -259,6 +290,10 @@ if __name__ == "__main__":
     )
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--max-samples", type=int, default=None)
+    p.add_argument(
+        "--whisper-model", default=None,
+        help="Local path or HF ID for Whisper model (default: openai/whisper-large-v3)"
+    )
     args = p.parse_args()
     if args.output is None:
         args.output = os.path.join(os.path.dirname(args.audio_dir), "wer.json")
