@@ -24,6 +24,8 @@ from sglang_omni.proto import StagePayload
 
 logger = logging.getLogger(__name__)
 
+_VOCODER_BYTES_PER_TOKEN = int(5.3 * 1024 * 1024)
+
 _STREAM_CODES_KEY = "_stream_output_codes"
 _STREAM_EMITTED_SAMPLES_KEY = "_stream_emitted_samples"
 _STREAM_LAST_VOCODE_TOKENS_KEY = "_stream_last_vocode_tokens"
@@ -356,24 +358,18 @@ def create_sglang_tts_engine_executor(
 
     # reference: https://github.com/sgl-project/sglang-omni/pull/267
 
-    _VOCODER_BYTES_PER_TOKEN = int(5.3 * 1024 * 1024)
     gpu_id_int = int(device.split(":")[-1]) if ":" in device else 0
     free_mem = torch.cuda.mem_get_info(gpu_id_int)[0]
     max_vocoder_tokens = int(free_mem / _VOCODER_BYTES_PER_TOKEN)
     logger.info(
-        "Vocoder memory guard: GPU free %.1f GB, max_vocoder_tokens=%d",
-        free_mem / 1e9,
-        max_vocoder_tokens,
+        f"Vocoder memory guard: GPU free {free_mem / 1e9:.1f} GB, max_vocoder_tokens={max_vocoder_tokens}"
     )
 
     def _request_builder(payload: StagePayload):
         state = load_state(payload)
         if state.max_new_tokens > max_vocoder_tokens:
             logger.warning(
-                "Request %s: max_new_tokens=%d exceeds vocoder limit %d, clamping.",
-                payload.request_id,
-                state.max_new_tokens,
-                max_vocoder_tokens,
+                f"Request {payload.request_id}: max_new_tokens={state.max_new_tokens} exceeds vocoder limit {max_vocoder_tokens}, clamping."
             )
             state.max_new_tokens = max_vocoder_tokens
         return build_sglang_tts_request(state, tokenizer, request_id=payload.request_id)
