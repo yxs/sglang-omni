@@ -334,27 +334,27 @@ def create_sglang_tts_engine_executor(
         top_k=top_k,
     )
 
-      # Note (Xuesong, Chenyang): 
-      # SGLang engine pre-allocates ~85% of total VRAM for model weights
-      # and KV cache. The remaining ~15% is shared by runtime activations
-      # and the vocoder (DAC decoder).
+    # Note (Xuesong, Chenyang):
+    # SGLang engine pre-allocates ~85% of total VRAM for model weights
+    # and KV cache. The remaining ~15% is shared by runtime activations
+    # and the vocoder (DAC decoder).
 
-      # Unlike the KV cache, the vocoder has no pre-allocated memory pool —
-      # it allocates dynamically during codec.from_indices() on each request.
-      # If the AR model produces an oversized codebook sequence, DAC conv1d
-      # layers need ~5.3 MB per token (float32, measured empirically on H100),
-      # easily exceeding the remaining free VRAM.
+    # Unlike the KV cache, the vocoder has no pre-allocated memory pool —
+    # it allocates dynamically during codec.from_indices() on each request.
+    # If the AR model produces an oversized codebook sequence, DAC conv1d
+    # layers need ~5.3 MB per token (float32, measured empirically on H100),
+    # easily exceeding the remaining free VRAM.
 
-      # To prevent this, we snapshot free GPU memory at engine startup and
-      # compute the maximum token count the vocoder can safely handle.
-      # Requests whose max_new_tokens exceed this limit are clamped and raise
-      # warnings.
+    # To prevent this, we snapshot free GPU memory at engine startup and
+    # compute the maximum token count the vocoder can safely handle.
+    # Requests whose max_new_tokens exceed this limit are clamped and raise
+    # warnings.
 
-      # Caveat: PyTorch's caching allocator gradually consumes free memory
-      # over time, so actual headroom at runtime is lower than at startup.
-      # This guard is conservative but not airtight.
+    # Caveat: PyTorch's caching allocator gradually consumes free memory
+    # over time, so actual headroom at runtime is lower than at startup.
+    # This guard is conservative but not airtight.
 
-      # reference: https://github.com/sgl-project/sglang-omni/pull/267
+    # reference: https://github.com/sgl-project/sglang-omni/pull/267
 
     _VOCODER_BYTES_PER_TOKEN = int(5.3 * 1024 * 1024)
     gpu_id_int = int(device.split(":")[-1]) if ":" in device else 0
