@@ -12,6 +12,7 @@ Author:
     Jingwen Guo https://github.com/JingwenGu0829
     Yuan Luo https://github.com/yuan-luo
     Yitong Guan https://github.com/minleminzui
+    Xuesong Ye https://github.com/yxs
 
 The benchmark supports one selected concurrency per test run. Use --concurrency 8
 in CI, run without the flag to use concurrency 1, or pass --concurrency all
@@ -77,9 +78,9 @@ STREAMING_BENCHMARK_MAX_SAMPLES = 16
 THRESHOLD_SLACK_HIGHER = 0.75
 THRESHOLD_SLACK_LOWER = 1.25
 
-VC_WER_MAX_CORPUS = 0.025
+VC_WER_MAX_CORPUS = 0.015
 VC_WER_MAX_PER_SAMPLE = 0.5
-VC_STREAM_WER_MAX_CORPUS = 0.025
+VC_STREAM_WER_MAX_CORPUS = 0.015
 VC_STREAM_WER_MAX_PER_SAMPLE = 0.5
 
 # Note (Chenyang): Only thresholds for concurrency 8 are dedicatedly tuned, others
