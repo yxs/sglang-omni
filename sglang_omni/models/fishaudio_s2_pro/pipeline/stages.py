@@ -334,8 +334,32 @@ def create_sglang_tts_engine_executor(
         top_k=top_k,
     )
 
+    # Note (Xuesong): Compute the max sequence length the vocoder can handle
+    # given available GPU memory after model + KV cache are loaded.
+    # DAC decoder peak memory ≈ 5.3 MB/token (float32, measured empirically).
+    # This guards against user-supplied max_new_tokens that would OOM the
+    # vocoder, but does not account for PyTorch caching allocator fragmentation
+    # after many requests. reference: #267
+    _VOCODER_BYTES_PER_TOKEN = int(5.3 * 1024 * 1024)
+    gpu_id_int = int(device.split(":")[-1]) if ":" in device else 0
+    free_mem = torch.cuda.mem_get_info(gpu_id_int)[0]
+    max_vocoder_tokens = int(free_mem / _VOCODER_BYTES_PER_TOKEN)
+    logger.info(
+        "Vocoder memory guard: GPU free %.1f GB, max_vocoder_tokens=%d",
+        free_mem / 1e9,
+        max_vocoder_tokens,
+    )
+
     def _request_builder(payload: StagePayload):
         state = load_state(payload)
+        if state.max_new_tokens > max_vocoder_tokens:
+            logger.warning(
+                "Request %s: max_new_tokens=%d exceeds vocoder limit %d, clamping.",
+                payload.request_id,
+                state.max_new_tokens,
+                max_vocoder_tokens,
+            )
+            state.max_new_tokens = max_vocoder_tokens
         return build_sglang_tts_request(state, tokenizer, request_id=payload.request_id)
 
     def _result_builder(payload: StagePayload, result: Any) -> StagePayload:
