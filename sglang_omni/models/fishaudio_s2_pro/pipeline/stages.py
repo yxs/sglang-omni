@@ -352,9 +352,11 @@ def create_sglang_tts_engine_executor(
     # Requests whose max_new_tokens exceed this limit are clamped and raise
     # warnings.
 
-    # Caveat: PyTorch's caching allocator gradually consumes free memory
-    # over time, so actual headroom at runtime is lower than at startup.
-    # This guard is conservative but not airtight.
+    # Caveat: PyTorch's caching allocator reserves memory for intermediate
+    # tensors across requests (~5.5 GB over ~100 diverse requests on H100).
+    # This memory is NOT lost — the vocoder allocates through the same
+    # allocator and reuses cached blocks. The allocator also evicts old
+    # blocks when large contiguous allocations are needed.
 
     # reference: https://github.com/sgl-project/sglang-omni/pull/267
 
