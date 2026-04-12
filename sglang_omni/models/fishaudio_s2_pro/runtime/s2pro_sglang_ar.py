@@ -4,7 +4,7 @@
 The text model's forward() runs the entire decode step:
   1. VQ embedding combination (from previous step's codebook values)
   2. Transformer forward (slow head, paged KV via RadixAttention)
-  3. Constrained semantic sampling (argmax)
+  3. Constrained semantic sampling (rep_penalty → top-k → top-p → temp)
   4. Batched codebook generation (fast head, static KV cache)
 
 The whole step is captured by CUDA graph for decode. Prefill still
@@ -432,7 +432,7 @@ class S2ProSGLangModelRunner:
         model_worker_batch: Any,
         scheduler_output: SchedulerOutput,
     ) -> None:
-        """Update the text model's persistent VQ buffers for decode."""
+        """Update the text model's persistent VQ buffers and sampling params for decode."""
         text_model = self.model_worker.model_runner.model
         input_ids = model_worker_batch.input_ids
         bs = input_ids.shape[0]
@@ -447,13 +447,11 @@ class S2ProSGLangModelRunner:
             if data._last_codebook_values is not None and is_semantic[i]:
                 text_model._vq_codes[i].copy_(data._last_codebook_values)
 
-            # Per-request sampling parameters
             text_model._sampling_temperature[i] = data.temperature
             text_model._sampling_top_p[i] = data.top_p
             text_model._sampling_top_k[i] = data.top_k
             text_model._sampling_rep_penalty[i] = data.repetition_penalty
 
-            # Repetition penalty: copy token history into model buffer
             prev = data._previous_semantic_tokens
             history_len = text_model._rep_history_len
             if prev:

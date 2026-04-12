@@ -281,7 +281,6 @@ class S2ProSGLangTextModel(nn.Module):
             max_batch_size, dtype=torch.long, device=device
         )
 
-        # Sampling parameter buffers (updated by ModelRunner each step)
         self._sampling_temperature = torch.full((max_batch_size,), 0.8, device=device)
         self._sampling_top_p = torch.full((max_batch_size,), 0.8, device=device)
         self._sampling_top_k = torch.full(
@@ -289,11 +288,9 @@ class S2ProSGLangTextModel(nn.Module):
         )
         self._sampling_rep_penalty = torch.full((max_batch_size,), 1.1, device=device)
 
-        # RAS constants
         self._ras_temperature = 1.5
         self._ras_top_p = 0.95
 
-        # Repetition penalty token history buffers
         _REP_HISTORY = 16
         self._prev_tokens = torch.zeros(
             max_batch_size, _REP_HISTORY, dtype=torch.long, device=device
@@ -372,19 +369,19 @@ class S2ProSGLangTextModel(nn.Module):
     def _decode_codebooks(self, logits: Tensor, hidden_states: Tensor) -> None:
         """Constrained semantic sampling + batched codebook generation.
 
-        reference: https://github.com/sgl-project/sglang-omni/issues/272
+        Note (Xuesong): CUDA graph sampling is aligned with the non-graph path
+        except: codebook tokens use argmax instead of stochastic sampling,
+        RAS requires 4+ token history (non-graph: 2+), top-k capped at 30.
         """
         bs = logits.shape[0]
 
         biased_logits = logits + self._semantic_bias
 
-        # RAS: detect repetition in last 4 valid tokens
-        count = self._prev_token_count[:bs]  # [bs]
-        # Gather last 4 valid tokens using count-based indexing
+        count = self._prev_token_count[:bs]
         idx_base = count.unsqueeze(1) - torch.arange(
             4, 0, -1, device=logits.device
         ).unsqueeze(0)
-        idx_base = idx_base.clamp(min=0)  # [bs, 4]
+        idx_base = idx_base.clamp(min=0)
         last4 = torch.gather(self._prev_tokens[:bs], 1, idx_base)
         sorted_last4 = torch.sort(last4, dim=-1).values
         has_dup = (sorted_last4[:, 1:] == sorted_last4[:, :-1]).any(dim=-1)
@@ -392,16 +389,11 @@ class S2ProSGLangTextModel(nn.Module):
 
         temperature = torch.where(
             use_ras, self._ras_temperature, self._sampling_temperature[:bs]
-        ).unsqueeze(
-            1
-        )  # [bs, 1]
+        ).unsqueeze(1)
         top_p = torch.where(
             use_ras, self._ras_top_p, self._sampling_top_p[:bs]
-        ).unsqueeze(
-            1
-        )  # [bs, 1]
+        ).unsqueeze(1)
 
-        # Repetition penalty
         prev = self._prev_tokens[:bs]
         scores = torch.gather(biased_logits, dim=-1, index=prev)
         rep_penalty = self._sampling_rep_penalty[:bs].unsqueeze(1)
@@ -412,9 +404,7 @@ class S2ProSGLangTextModel(nn.Module):
         scores = torch.where(valid_mask, penalized, scores)
         biased_logits.scatter_(dim=-1, index=prev, src=scores.to(biased_logits.dtype))
 
-        # Top-k (fixed k=30 for graph safety, per-request mask after)
         top_k_logits, top_k_indices = torch.topk(biased_logits, 30, dim=-1)
-        # top_k <= 0 means no filtering; use 30 (all candidates) in that case
         effective_k = torch.where(
             self._sampling_top_k[:bs] > 0, self._sampling_top_k[:bs], 30
         )
@@ -423,7 +413,6 @@ class S2ProSGLangTextModel(nn.Module):
         filtered = torch.full_like(biased_logits, -float("inf"))
         filtered.scatter_(dim=-1, index=top_k_indices, src=top_k_logits)
 
-        # Top-p
         sorted_logits, sorted_indices = torch.sort(filtered, descending=True)
         cum_probs = torch.cumsum(
             torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1
@@ -435,7 +424,6 @@ class S2ProSGLangTextModel(nn.Module):
         )
         filtered = filtered.masked_fill(indices_to_remove, -float("inf"))
 
-        # Temperature + sample
         probs = torch.softmax(filtered / temperature.clamp(min=1e-5), dim=-1)
         semantic_token = torch.multinomial(probs, num_samples=1).squeeze(-1)
 
