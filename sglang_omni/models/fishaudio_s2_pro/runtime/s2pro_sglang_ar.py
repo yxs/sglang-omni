@@ -447,6 +447,25 @@ class S2ProSGLangModelRunner:
             if data._last_codebook_values is not None and is_semantic[i]:
                 text_model._vq_codes[i].copy_(data._last_codebook_values)
 
+            # Per-request sampling parameters
+            text_model._sampling_temperature[i] = data.temperature
+            text_model._sampling_top_p[i] = data.top_p
+            text_model._sampling_top_k[i] = data.top_k
+            text_model._sampling_rep_penalty[i] = data.repetition_penalty
+
+            # Repetition penalty: copy token history into model buffer
+            prev = data._previous_semantic_tokens
+            history_len = text_model._rep_history_len
+            if prev:
+                recent = prev[-history_len:]
+                t = torch.tensor(recent, dtype=torch.long, device=input_ids.device)
+                text_model._prev_tokens[i, : len(recent)] = t
+                text_model._prev_tokens[i, len(recent) :] = 0  # clear stale tail
+                text_model._prev_token_count[i] = len(recent)
+            else:
+                text_model._prev_tokens[i].zero_()
+                text_model._prev_token_count[i] = 0
+
     def _build_outputs(
         self,
         scheduler_output: SchedulerOutput,
@@ -471,6 +490,7 @@ class S2ProSGLangModelRunner:
                 data=S2ProStepOutput(codes=codes),
                 finished=False,
             )
+
         return outputs
 
     def execute(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput:
