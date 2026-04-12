@@ -288,7 +288,7 @@ class S2ProSGLangTextModel(nn.Module):
             max_batch_size, dtype=torch.long, device=device
         )
 
-        # Overwritten by _update_vq_buffers each decode step.
+        # Note (Xuesong, Chenyang): Overwritten by _update_vq_buffers each decode step.
         self._graph_top_k = _GRAPH_TOP_K
         self._sampling_temperature = torch.full(
             (max_batch_size,), _DEFAULT_TEMPERATURE, device=device
