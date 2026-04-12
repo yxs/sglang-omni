@@ -27,6 +27,12 @@ from sglang_omni.vendor.sglang.utils import make_layers
 
 logger = logging.getLogger(__name__)
 
+# Note (Xuesong): sampling defaults follow Fish Audio S2-Pro upstream
+_GRAPH_TOP_K = 30
+_DEFAULT_TEMPERATURE = 0.8
+_DEFAULT_TOP_P = 0.8
+_DEFAULT_REP_PENALTY = 1.1
+
 
 class S2ProAttention(nn.Module):
     def __init__(
@@ -282,15 +288,22 @@ class S2ProSGLangTextModel(nn.Module):
             max_batch_size, dtype=torch.long, device=device
         )
 
-        _GRAPH_TOP_K = 30
+        # Overwritten by _update_vq_buffers each decode step.
         self._graph_top_k = _GRAPH_TOP_K
-        self._sampling_temperature = torch.full((max_batch_size,), 0.8, device=device)
-        self._sampling_top_p = torch.full((max_batch_size,), 0.8, device=device)
+        self._sampling_temperature = torch.full(
+            (max_batch_size,), _DEFAULT_TEMPERATURE, device=device
+        )
+        self._sampling_top_p = torch.full(
+            (max_batch_size,), _DEFAULT_TOP_P, device=device
+        )
         self._sampling_top_k = torch.full(
             (max_batch_size,), _GRAPH_TOP_K, dtype=torch.long, device=device
         )
-        self._sampling_rep_penalty = torch.full((max_batch_size,), 1.1, device=device)
+        self._sampling_rep_penalty = torch.full(
+            (max_batch_size,), _DEFAULT_REP_PENALTY, device=device
+        )
 
+        # Note (Xuesong): RAS defaults per Fish Audio team recommendation.
         self._ras_temperature = torch.full((max_batch_size,), 1.0, device=device)
         self._ras_top_p = torch.full((max_batch_size,), 0.9, device=device)
 
@@ -379,6 +392,7 @@ class S2ProSGLangTextModel(nn.Module):
         bs = logits.shape[0]
 
         biased_logits = logits + self._semantic_bias
+        biased_logits = biased_logits.to(torch.bfloat16).to(torch.float32)
 
         count = self._prev_token_count[:bs]
         idx_base = count.unsqueeze(1) - self._ras_range.unsqueeze(0)
@@ -414,29 +428,26 @@ class S2ProSGLangTextModel(nn.Module):
         )
         effective_k = torch.where(
             self._sampling_top_k[:bs] > 0,
-            self._sampling_top_k[:bs],
+            self._sampling_top_k[:bs].clamp(max=self._graph_top_k),
             self._graph_top_k,
         )
         per_k_mask = self._top_k_positions.unsqueeze(0) >= effective_k.unsqueeze(1)
         top_k_logits = top_k_logits.masked_fill(per_k_mask, -float("inf"))
-        filtered = torch.full_like(biased_logits, -float("inf"))
-        filtered.scatter_(dim=-1, index=top_k_indices, src=top_k_logits)
 
-        sorted_logits, sorted_indices = torch.sort(filtered, descending=True)
         cum_probs = torch.cumsum(
-            torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1
+            torch.nn.functional.softmax(top_k_logits, dim=-1), dim=-1
         )
-        sorted_mask = cum_probs > top_p
-        sorted_mask[..., 0] = False
-        indices_to_remove = sorted_mask.scatter(
-            dim=-1, index=sorted_indices, src=sorted_mask
+        top_p_mask = cum_probs > top_p
+        top_p_mask[..., 0] = False
+        top_k_logits = top_k_logits.masked_fill(top_p_mask, -float("inf"))
+        probs = torch.nn.functional.softmax(
+            top_k_logits / temperature.clamp(min=1e-5), dim=-1
         )
-        filtered = filtered.masked_fill(indices_to_remove, -float("inf"))
-
-        probs = torch.softmax(filtered / temperature.clamp(min=1e-5), dim=-1)
         # Note (Xuesong): multinomial is CUDA graph safe (PyTorch 2.x+),
         # RNG state advances correctly on each replay.
-        semantic_token = torch.multinomial(probs, num_samples=1).squeeze(-1)
+        semantic_token = top_k_indices.gather(
+            -1, torch.multinomial(probs, num_samples=1)
+        ).squeeze(-1)
 
         # Batched codebook loop
         self._audio_decoder.reset_caches()

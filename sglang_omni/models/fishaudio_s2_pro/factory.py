@@ -73,8 +73,6 @@ def create_s2pro_sglang_engine(
     max_new_tokens: int = 2048,
     top_k: int = 30,
     ras_window: int = 16,
-    ras_temperature: float = 1.0,
-    ras_top_p: float = 0.9,
 ) -> OmniEngine:
     """Create a unified S2-Pro engine (slow+fast head in one CUDA graph)."""
     from sglang_omni.engines.ar.sglang_backend.model_worker import (

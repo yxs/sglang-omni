@@ -256,7 +256,7 @@ class S2ProSGLangOutputProcessor:
         # RAS check
         use_ras = False
         if len(data._previous_semantic_tokens) > 0:
-            recent = data._previous_semantic_tokens[-self._ras_window :]
+            recent = data._previous_semantic_tokens[-data.ras_window :]
             if len(recent) >= 2 and len(set(recent[-4:])) < len(recent[-4:]):
                 use_ras = True
 
@@ -271,7 +271,7 @@ class S2ProSGLangOutputProcessor:
         prev_tokens = None
         if data._previous_semantic_tokens:
             prev_tokens = torch.tensor(
-                data._previous_semantic_tokens[-16:],
+                data._previous_semantic_tokens[-data.ras_window :],
                 device=device,
                 dtype=torch.long,
             ).unsqueeze(0)
