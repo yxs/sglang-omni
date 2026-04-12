@@ -432,7 +432,11 @@ class S2ProSGLangModelRunner:
         model_worker_batch: Any,
         scheduler_output: SchedulerOutput,
     ) -> None:
-        """Update the text model's persistent VQ buffers and sampling params for decode."""
+        """Update the text model's persistent VQ buffers and sampling params for decode.
+
+        Note (Xuesong): Per-request loop because _previous_semantic_tokens is a
+        variable-length Python list that can't be directly batched.
+        """
         text_model = self.model_worker.model_runner.model
         input_ids = model_worker_batch.input_ids
         bs = input_ids.shape[0]
@@ -458,7 +462,7 @@ class S2ProSGLangModelRunner:
                 recent = prev[-history_len:]
                 t = torch.tensor(recent, dtype=torch.long, device=input_ids.device)
                 text_model._prev_tokens[i, : len(recent)] = t
-                text_model._prev_tokens[i, len(recent) :] = 0  # clear stale tail
+                text_model._prev_tokens[i, len(recent) :] = 0
                 text_model._prev_token_count[i] = len(recent)
             else:
                 text_model._prev_tokens[i].zero_()

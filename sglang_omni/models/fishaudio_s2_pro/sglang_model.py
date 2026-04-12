@@ -244,6 +244,7 @@ class S2ProSGLangTextModel(nn.Module):
         semantic_end_id: int,
         im_end_id: int,
         max_batch_size: int,
+        rep_history_len: int,
     ) -> None:
         """Attach audio decoder and allocate persistent GPU buffers."""
         device = self.embed_tokens.weight.device
@@ -281,26 +282,28 @@ class S2ProSGLangTextModel(nn.Module):
             max_batch_size, dtype=torch.long, device=device
         )
 
+        _GRAPH_TOP_K = 30
+        self._graph_top_k = _GRAPH_TOP_K
         self._sampling_temperature = torch.full((max_batch_size,), 0.8, device=device)
         self._sampling_top_p = torch.full((max_batch_size,), 0.8, device=device)
         self._sampling_top_k = torch.full(
-            (max_batch_size,), 30, dtype=torch.long, device=device
+            (max_batch_size,), _GRAPH_TOP_K, dtype=torch.long, device=device
         )
         self._sampling_rep_penalty = torch.full((max_batch_size,), 1.1, device=device)
 
         self._ras_temperature = 1.5
         self._ras_top_p = 0.95
 
-        _REP_HISTORY = 16
         self._prev_tokens = torch.zeros(
-            max_batch_size, _REP_HISTORY, dtype=torch.long, device=device
+            max_batch_size, rep_history_len, dtype=torch.long, device=device
         )
         self._prev_token_count = torch.zeros(
             max_batch_size, dtype=torch.long, device=device
         )
-        self._rep_history_len = _REP_HISTORY
-        self._rep_positions = torch.arange(_REP_HISTORY, device=device)
-        self._top_k_positions = torch.arange(30, device=device)
+        self._rep_history_len = rep_history_len
+        self._rep_positions = torch.arange(rep_history_len, device=device)
+        self._top_k_positions = torch.arange(_GRAPH_TOP_K, device=device)
+        self._ras_range = torch.arange(4, 0, -1, device=device)
 
         self._vq_ready = True
 
@@ -378,13 +381,13 @@ class S2ProSGLangTextModel(nn.Module):
         biased_logits = logits + self._semantic_bias
 
         count = self._prev_token_count[:bs]
-        idx_base = count.unsqueeze(1) - torch.arange(
-            4, 0, -1, device=logits.device
-        ).unsqueeze(0)
+        idx_base = count.unsqueeze(1) - self._ras_range.unsqueeze(0)
         idx_base = idx_base.clamp(min=0)
         last4 = torch.gather(self._prev_tokens[:bs], 1, idx_base)
         sorted_last4 = torch.sort(last4, dim=-1).values
         has_dup = (sorted_last4[:, 1:] == sorted_last4[:, :-1]).any(dim=-1)
+        # Note (Xuesong): count >= 4 (vs non-graph 2+) avoids false positives
+        # from clamped indices; at count 2-3 repetition loops can't occur yet.
         use_ras = has_dup & (count >= 4)
 
         temperature = torch.where(
@@ -404,9 +407,13 @@ class S2ProSGLangTextModel(nn.Module):
         scores = torch.where(valid_mask, penalized, scores)
         biased_logits.scatter_(dim=-1, index=prev, src=scores.to(biased_logits.dtype))
 
-        top_k_logits, top_k_indices = torch.topk(biased_logits, 30, dim=-1)
+        top_k_logits, top_k_indices = torch.topk(
+            biased_logits, self._graph_top_k, dim=-1
+        )
         effective_k = torch.where(
-            self._sampling_top_k[:bs] > 0, self._sampling_top_k[:bs], 30
+            self._sampling_top_k[:bs] > 0,
+            self._sampling_top_k[:bs],
+            self._graph_top_k,
         )
         per_k_mask = self._top_k_positions.unsqueeze(0) >= effective_k.unsqueeze(1)
         top_k_logits = top_k_logits.masked_fill(per_k_mask, -float("inf"))
@@ -425,6 +432,8 @@ class S2ProSGLangTextModel(nn.Module):
         filtered = filtered.masked_fill(indices_to_remove, -float("inf"))
 
         probs = torch.softmax(filtered / temperature.clamp(min=1e-5), dim=-1)
+        # Note (Xuesong): multinomial is CUDA graph safe (PyTorch 2.x+),
+        # RNG state advances correctly on each replay.
         semantic_token = torch.multinomial(probs, num_samples=1).squeeze(-1)
 
         # Batched codebook loop

@@ -126,6 +126,7 @@ def create_s2pro_sglang_engine(
         semantic_end_id=semantic_end_id,
         im_end_id=im_end_id,
         max_batch_size=max_bs,
+        rep_history_len=ras_window,
     )
 
     # Now capture CUDA graphs with _decode_codebooks in the graph
