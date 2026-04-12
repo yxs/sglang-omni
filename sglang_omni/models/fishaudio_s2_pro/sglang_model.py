@@ -291,8 +291,8 @@ class S2ProSGLangTextModel(nn.Module):
         )
         self._sampling_rep_penalty = torch.full((max_batch_size,), 1.1, device=device)
 
-        self._ras_temperature = 1.0
-        self._ras_top_p = 0.9
+        self._ras_temperature = torch.full((max_batch_size,), 1.0, device=device)
+        self._ras_top_p = torch.full((max_batch_size,), 0.9, device=device)
 
         self._prev_tokens = torch.zeros(
             max_batch_size, rep_history_len, dtype=torch.long, device=device
@@ -391,10 +391,10 @@ class S2ProSGLangTextModel(nn.Module):
         use_ras = has_dup & (count >= 4)
 
         temperature = torch.where(
-            use_ras, self._ras_temperature, self._sampling_temperature[:bs]
+            use_ras, self._ras_temperature[:bs], self._sampling_temperature[:bs]
         ).unsqueeze(1)
         top_p = torch.where(
-            use_ras, self._ras_top_p, self._sampling_top_p[:bs]
+            use_ras, self._ras_top_p[:bs], self._sampling_top_p[:bs]
         ).unsqueeze(1)
 
         prev = self._prev_tokens[:bs]

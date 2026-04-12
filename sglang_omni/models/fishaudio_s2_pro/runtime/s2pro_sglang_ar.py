@@ -455,6 +455,8 @@ class S2ProSGLangModelRunner:
             text_model._sampling_top_p[i] = data.top_p
             text_model._sampling_top_k[i] = data.top_k
             text_model._sampling_rep_penalty[i] = data.repetition_penalty
+            text_model._ras_temperature[i] = data.ras_temperature
+            text_model._ras_top_p[i] = data.ras_top_p
 
             prev = data._previous_semantic_tokens
             history_len = text_model._rep_history_len
