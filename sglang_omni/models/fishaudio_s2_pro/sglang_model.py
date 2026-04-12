@@ -291,8 +291,8 @@ class S2ProSGLangTextModel(nn.Module):
         )
         self._sampling_rep_penalty = torch.full((max_batch_size,), 1.1, device=device)
 
-        self._ras_temperature = 1.5
-        self._ras_top_p = 0.95
+        self._ras_temperature = 1.0
+        self._ras_top_p = 0.9
 
         self._prev_tokens = torch.zeros(
             max_batch_size, rep_history_len, dtype=torch.long, device=device

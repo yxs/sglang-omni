@@ -62,8 +62,8 @@ class S2ProSGLangRequestData(SGLangARRequestData):
     repetition_penalty: float = 1.1
 
     ras_window: int = 16
-    ras_temperature: float = 1.5
-    ras_top_p: float = 0.95
+    ras_temperature: float = 1.0
+    ras_top_p: float = 0.9
 
     _previous_semantic_tokens: list[int] = field(default_factory=list)
     _last_codebook_values: torch.Tensor | None = None
@@ -132,8 +132,8 @@ class S2ProSGLangOutputProcessor:
         im_end_id: int = 0,
         top_k: int = 30,
         ras_window: int = 16,
-        ras_temperature: float = 1.5,
-        ras_top_p: float = 0.95,
+        ras_temperature: float = 1.0,
+        ras_top_p: float = 0.9,
         use_torch_compile: bool = False,
         align_logits_to_bf16: bool = True,
     ) -> None:
