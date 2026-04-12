@@ -397,6 +397,8 @@ class S2ProSGLangTextModel(nn.Module):
             use_ras, self._ras_top_p[:bs], self._sampling_top_p[:bs]
         ).unsqueeze(1)
 
+        # Note (Xuesong): when count == 0, valid_mask is all-False so this
+        # block is a no-op (CUDA graph can't branch, only mask to no-op).
         prev = self._prev_tokens[:bs]
         scores = torch.gather(biased_logits, dim=-1, index=prev)
         rep_penalty = self._sampling_rep_penalty[:bs].unsqueeze(1)
