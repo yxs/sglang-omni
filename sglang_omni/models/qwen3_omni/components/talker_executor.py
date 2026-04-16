@@ -500,7 +500,6 @@ class TalkerStreamingExecutor(Executor):
             self._tts_eos_token_id,
             self._tts_pad_token_id,
         ]
-        hidden_size = self._talker_model.config.thinker_hidden_size
         thinker_rows = _load_thinker_embedding_rows(
             self._resolved_model_path, special_ids
         )
