@@ -131,28 +131,46 @@ async def run_level(
     num_requests: int,
     chunks_per_request: int,
     num_quantizers: int,
+    codebook_size: int,
     device: torch.device,
     request_seq_start: int,
     total_upsample: int,
     sample_rate: int,
+    var_length: bool,
 ) -> tuple[LevelResult, int]:
     """Fire ``num_requests`` requests with the given concurrency cap."""
     sem = asyncio.Semaphore(concurrency)
 
+    def _chunk_count(req_idx: int) -> int:
+        """Deterministic per-request chunk count.
+
+        Uniform ``chunks_per_request`` by default; in ``--var-length`` mode
+        draws from ``[chunks_per_request//2, chunks_per_request]`` so the
+        batched path actually exercises padded positions.
+        """
+        if not var_length:
+            return chunks_per_request
+        lo = max(1, chunks_per_request // 2)
+        # Use the request index itself as a cheap deterministic sample.
+        return lo + (req_idx * 7) % (chunks_per_request - lo + 1)
+
     async def one(req_idx: int) -> float:
         async with sem:
             # Distinct random codes per request (deterministic via seed
-            # for a given request index, for reproducibility).
+            # for a given request index, for reproducibility).  ``high``
+            # matches the code2wav codebook size — any id >= codebook_size
+            # would trigger an OOB embedding lookup at forward time.
             g = torch.Generator(device="cpu").manual_seed(req_idx)
+            n_chunks = _chunk_count(req_idx)
             chunks = [
                 torch.randint(
                     low=0,
-                    high=2000,
+                    high=codebook_size,
                     size=(num_quantizers,),
                     dtype=torch.long,
                     generator=g,
                 ).to(device=device)
-                for _ in range(chunks_per_request)
+                for _ in range(n_chunks)
             ]
             return await _drive_one(
                 exe, stream_queue, f"bench-{req_idx}", chunks,
@@ -160,9 +178,14 @@ async def run_level(
 
     next_seq = request_seq_start
 
-    # Warm up one request to cover first-kernel-launch overhead
-    await one(next_seq)
-    next_seq += 1
+    # Per-level warmup: fire ``concurrency`` parallel requests so MIOpen /
+    # cuDNN prime the actual batched shape that the measurement window
+    # will hit.  The executor's own ``__init__`` warmup already primed
+    # {1, 2, 4, 8, max_batch_size} with fixed shapes, but this catches
+    # any per-level-shape variation (especially under --var-length).
+    warmup_start = next_seq
+    next_seq += concurrency
+    await asyncio.gather(*(one(warmup_start + i) for i in range(concurrency)))
 
     start = time.perf_counter()
     latencies = await asyncio.gather(
@@ -180,9 +203,14 @@ async def run_level(
         return xs[k]
 
     # Audio duration is deterministic from the config:
-    # each request produces chunks_per_request * total_upsample output samples;
-    # dividing by sample_rate gives seconds per request.
-    audio_per_req_s = chunks_per_request * total_upsample / sample_rate
+    # each request produces ``chunks_per_request * total_upsample`` output
+    # samples (using the average under --var-length).  Dividing by
+    # ``sample_rate`` gives seconds per request.
+    if var_length:
+        avg_chunks = (chunks_per_request // 2 + chunks_per_request) / 2
+    else:
+        avg_chunks = chunks_per_request
+    audio_per_req_s = avg_chunks * total_upsample / sample_rate
     audio_total_s = audio_per_req_s * num_requests
 
     return (
@@ -215,12 +243,14 @@ async def main_async(args: argparse.Namespace) -> None:
 
     # The executor expects ``stream_chunk_size`` to equal the size of a
     # decode window.  We feed exactly one chunk per chunk so the first
-    # decode fires after ``stream_chunk_size`` pushes.
+    # decode fires after ``stream_chunk_size`` pushes.  ``left_context_size``
+    # matches the production default (25) so measured numbers reflect the
+    # actual vocoder workload (T = chunks_per_request + left_context).
     exe = _Code2WavStreamingExecutor(
         model,
         device=str(device),
         stream_chunk_size=args.chunks_per_request,
-        left_context_size=0,
+        left_context_size=args.left_context_size,
     )
     stream_queue = StreamQueue()
     exe._stream_queue = stream_queue
@@ -229,11 +259,12 @@ async def main_async(args: argparse.Namespace) -> None:
     request_seq = 0
     for concurrency in args.concurrencies:
         logger.info(
-            "=== concurrency=%d, requests=%d, chunks=%d, Q=%d ===",
+            "=== concurrency=%d, requests=%d, chunks=%d, Q=%d, var_length=%s ===",
             concurrency,
             args.requests_per_level,
             args.chunks_per_request,
             args.num_quantizers,
+            args.var_length,
         )
         lr, request_seq = await run_level(
             exe,
@@ -242,10 +273,12 @@ async def main_async(args: argparse.Namespace) -> None:
             num_requests=args.requests_per_level,
             chunks_per_request=args.chunks_per_request,
             num_quantizers=args.num_quantizers,
+            codebook_size=args.codebook_size,
             device=device,
             request_seq_start=request_seq,
             total_upsample=exe._total_upsample,
             sample_rate=exe._sample_rate,
+            var_length=args.var_length,
         )
         results.append(lr)
         logger.info(
@@ -275,6 +308,8 @@ async def main_async(args: argparse.Namespace) -> None:
         "device": str(device),
         "chunks_per_request": args.chunks_per_request,
         "num_quantizers": args.num_quantizers,
+        "left_context_size": args.left_context_size,
+        "var_length": args.var_length,
         "results": [asdict(r) for r in results],
     }
     if args.output_json:
@@ -301,6 +336,22 @@ def parse_args() -> argparse.Namespace:
              "stream_chunk_size is set to this so one decode fires)",
     )
     p.add_argument("--num-quantizers", type=int, default=16)
+    p.add_argument(
+        "--codebook-size", type=int, default=2048,
+        help="Upper bound (exclusive) for random codes.  Must not exceed "
+             "the model's actual codebook_size or forward will OOB.",
+    )
+    p.add_argument(
+        "--left-context-size", type=int, default=25,
+        help="Left-context frames per decode window (matches the production "
+             "default).  Set to 0 to benchmark the kernel without context.",
+    )
+    p.add_argument(
+        "--var-length", action="store_true",
+        help="Randomize chunks per request in [chunks_per_request//2, "
+             "chunks_per_request] so the batched path exercises padded "
+             "positions instead of always running max_len == seq_len.",
+    )
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--log-level", type=str, default="INFO")
     return p.parse_args()
