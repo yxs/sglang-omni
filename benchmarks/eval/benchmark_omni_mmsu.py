@@ -1,6 +1,41 @@
 # SPDX-License-Identifier: Apache-2.0
 """MMSU benchmark."""
 
+# =============================================================================
+# H200 Full-Set Reference Results
+# -----------------------------------------------------------------------------
+# Reproducibility references for the FULL eval set — NOT CI thresholds.
+# CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
+# If your PR moves any of these numbers, call it out in the PR description.
+#
+# Benchmark: MMSU     |  Dataset: MMSU full (5000 samples)
+# Hardware:  1× H200  |  Last verified: 2026-04-17
+#
+# Accuracy (accuracy)
+# | Model      | Config                | overall_accuracy | parseable_samples | unparseable_samples | Source |
+# | ---------- | --------------------- | ---------------- | ----------------- | ------------------- | ------ |
+# | Qwen3-Omni | modalities=text       | TBD              | TBD               | TBD                 | TBD    |
+# # TODO(@PopSoda2002): re-run on H200
+# | Qwen3-Omni | modalities=text+audio | TBD              | TBD               | TBD                 | TBD    |
+# # TODO(@PopSoda2002): re-run on H200
+#
+# Per-task accuracy (accuracy.per_task; top-level task names only — full sub/sub-sub trees stay in JSON output)
+# | Model      | Config                | per_task breakdown  | Source |
+# | ---------- | --------------------- | ------------------- | ------ |
+# | Qwen3-Omni | modalities=text       | TBD                 | TBD    |
+# # TODO(@PopSoda2002): re-run on H200
+# | Qwen3-Omni | modalities=text+audio | TBD                 | TBD    |
+# # TODO(@PopSoda2002): re-run on H200
+#
+# Speed (speed)
+# | Model      | Config                | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
+# | ---------- | --------------------- | -------------- | ------------- | -------------- | -------------- | ------------- | ------ |
+# | Qwen3-Omni | modalities=text       | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
+# # TODO(@PopSoda2002): re-run on H200
+# | Qwen3-Omni | modalities=text+audio | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
+# # TODO(@PopSoda2002): re-run on H200
+# =============================================================================
+
 from __future__ import annotations
 
 import argparse

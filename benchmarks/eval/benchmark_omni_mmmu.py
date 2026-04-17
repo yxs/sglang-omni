@@ -22,6 +22,33 @@ Usage:
         --model qwen3-omni --port 8000 --max-samples 5 --enable-audio --max-tokens 50
 """
 
+# =============================================================================
+# H200 Full-Set Reference Results
+# -----------------------------------------------------------------------------
+# Reproducibility references for the FULL eval set — NOT CI thresholds.
+# CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
+# If your PR moves any of these numbers, call it out in the PR description.
+#
+# Benchmark: MMMU     |  Dataset: MMMU_val (900 samples, all 30 subjects)
+# Hardware:  1× H200  |  Last verified: 2026-04-17
+#
+# Accuracy (summary)
+# | Model      | Config             | accuracy | correct | failed | mc_fallback | Source |
+# | ---------- | ------------------ | -------- | ------- | ------ | ----------- | ------ |
+# | Qwen3-Omni | enable_audio=False | TBD      | TBD     | TBD    | TBD         | TBD    |
+# # TODO(@PasserBy4): re-run on H200
+# | Qwen3-Omni | enable_audio=True  | TBD      | TBD     | TBD    | TBD         | TBD    |
+# # TODO(@PasserBy4): re-run on H200
+#
+# Speed (speed)
+# | Model      | Config             | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
+# | ---------- | ------------------ | -------------- | ------------- | -------------- | -------------- | ------------- | ------ |
+# | Qwen3-Omni | enable_audio=False | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
+# # TODO(@PasserBy4): re-run on H200
+# | Qwen3-Omni | enable_audio=True  | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
+# # TODO(@PasserBy4): re-run on H200
+# =============================================================================
+
 from __future__ import annotations
 
 import argparse
