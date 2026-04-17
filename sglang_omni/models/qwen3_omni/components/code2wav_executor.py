@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_BATCH_SIZE: int = 16
 _DEFAULT_NUM_QUANTIZERS: int = 16  # Qwen3-Omni RVQ depth
+_DEFAULT_PAD_TOKEN_ID: int = 0     # any id in [0, codebook_size) works; 0 is always safe
 
 
 @dataclass
@@ -93,6 +94,7 @@ class _Code2WavStreamingExecutor(Executor):
         codec_eos_token_id: int = 2150,
         max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
         num_quantizers: int = _DEFAULT_NUM_QUANTIZERS,
+        pad_token_id: int = _DEFAULT_PAD_TOKEN_ID,
         warmup: bool = True,
     ):
         self._model = model
@@ -100,7 +102,11 @@ class _Code2WavStreamingExecutor(Executor):
         self._stream_chunk_size = max(int(stream_chunk_size), 1)
         self._left_context_size = max(int(left_context_size), 0)
         self._sample_rate = sample_rate
+        # EOS sentinel identifies "end of upstream chunk stream"; it is NOT a
+        # valid code2wav embedding input.  Padding uses ``pad_token_id``
+        # (any id in the codebook) instead — see ``_forward_batch``.
         self._codec_eos_token_id = codec_eos_token_id
+        self._pad_token_id = int(pad_token_id)
         self._total_upsample = int(getattr(model, "total_upsample", 1))
         self._max_batch_size = max(int(max_batch_size), 1)
         self._num_quantizers = int(num_quantizers)
@@ -384,7 +390,7 @@ class _Code2WavStreamingExecutor(Executor):
                 continue
             dummy = torch.full(
                 (b, self._num_quantizers, self._stream_chunk_size),
-                fill_value=self._codec_eos_token_id,
+                fill_value=self._pad_token_id,
                 dtype=torch.long,
                 device=self._device,
             )
@@ -429,14 +435,20 @@ class _Code2WavStreamingExecutor(Executor):
         max_len = max(r.codes_window.shape[1] for r in batch)
         num_q = batch[0].codes_window.shape[0]
 
-        # Pad with codec_eos_token_id rather than 0.  Zero is a valid
-        # codebook entry whose embedding would produce audible artifacts
-        # in the CNN vocoder's receptive field near the valid/padding
-        # boundary.  EOS is a training-time sentinel that produces
-        # near-silence, making boundary leakage benign.
+        # Pad with ``pad_token_id`` which MUST be a valid codebook id
+        # (0 <= id < codebook_size).  The code2wav model maps codes via
+        # ``code_embedding(codes + code_offset)`` where ``code_offset``
+        # is per-layer; an out-of-range code produces an OOB embedding
+        # lookup and a CUDA illegal access.  ``codec_eos_token_id`` is
+        # reserved for upstream EOS signalling and is NOT guaranteed to
+        # be inside the codebook (Qwen3-Omni uses 2150 > codebook_size
+        # 2048), so it must not be used here.  The padded positions are
+        # sliced away from the output before it is returned, so any
+        # residual boundary leakage is limited to the conv receptive
+        # field around the valid/pad boundary.
         padded = torch.full(
             (len(batch), num_q, max_len),
-            fill_value=self._codec_eos_token_id,
+            fill_value=self._pad_token_id,
             dtype=batch[0].codes_window.dtype,
             device=self._device,
         )
@@ -479,6 +491,7 @@ def create_code2wav_executor(
     stream_chunk_size: int = 10,
     left_context_size: int = 25,
     num_quantizers: int = _DEFAULT_NUM_QUANTIZERS,
+    pad_token_id: int = _DEFAULT_PAD_TOKEN_ID,
     warmup: bool = True,
 ) -> Executor:
     """Create Code2Wav executor that streams waveform chunks."""
@@ -492,5 +505,6 @@ def create_code2wav_executor(
         left_context_size=left_context_size,
         max_batch_size=max_batch_size,
         num_quantizers=num_quantizers,
+        pad_token_id=pad_token_id,
         warmup=warmup,
     )

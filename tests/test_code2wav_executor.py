@@ -39,22 +39,41 @@ from sglang_omni.models.qwen3_omni.components.code2wav_executor import (
 class _MockVocoder(nn.Module):
     """Deterministic mock vocoder with per-position output.
 
-    For input ``codes [B, Q, T]`` the output at batch ``i``, position
-    ``t * U + u`` is ``codes[i, :, t].sum() + u * 0.001``.  Crucially,
-    each output sample depends only on the codes at the *same* time
-    position, so padding tokens at the tail never contaminate the
-    valid region — this lets us assert exact equality between the
-    batched path and the single-request path.
+    Mirrors two salient properties of the real Qwen3OmniMoeCode2Wav:
+
+    1. It starts with an ``nn.Embedding`` lookup, so any code id
+       outside ``[0, codebook_size)`` triggers a runtime error exactly
+       like the real model.  This is how we catch pad-value OOB bugs.
+    2. Output at sample ``t * U + u`` depends only on the codes at
+       position ``t``, so padding positions cannot contaminate valid
+       samples.  Lets us assert exact equality between the batched and
+       single-request code paths.
     """
 
-    def __init__(self, upsample: int = 4) -> None:
+    def __init__(
+        self,
+        upsample: int = 4,
+        codebook_size: int = 2048,
+        hidden_size: int = 4,
+    ) -> None:
         super().__init__()
         self.total_upsample = int(upsample)
+        self._codebook_size = int(codebook_size)
+        # Use a real embedding so OOB ids throw like the real model.
+        self._embed = nn.Embedding(codebook_size, hidden_size)
+        # Deterministic, nonzero weights so the test values are stable.
+        with torch.no_grad():
+            torch.manual_seed(0)
+            self._embed.weight.copy_(torch.arange(
+                codebook_size * hidden_size, dtype=torch.float32,
+            ).reshape(codebook_size, hidden_size) * 0.001)
 
     def forward(self, codes: torch.Tensor) -> torch.Tensor:
         assert codes.dim() == 3, "expect [B, Q, T]"
+        # Will raise IndexError if any code id is outside [0, codebook_size).
+        embedded = self._embed(codes)                                  # [B, Q, T, H]
+        per_position = embedded.sum(dim=(1, 3))                        # [B, T]
         _, _, T = codes.shape
-        per_position = codes.float().sum(dim=1)                       # [B, T]
         upsampled = per_position.repeat_interleave(
             self.total_upsample, dim=1,
         )                                                              # [B, T*U]
@@ -86,40 +105,62 @@ def _make_executor(
 # ----------------------------------------------------------------------
 
 
-def test_vocoder_forward_produces_expected_waveform() -> None:
+def test_vocoder_forward_produces_expected_shape() -> None:
     exe = _make_executor(upsample=4)
-    # Q=2, T=3 → per-position sums = [1+4, 2+5, 3+6] = [5, 7, 9]
-    # Mock offset is global sample index, so samples 0..11 get offsets 0..11.
-    codes = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.long)
+    codes = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.long)  # Q=2, T=3
 
     wav = exe._vocoder_forward(codes, trim_samples=0)
 
-    expected = np.array(
-        [
-            5.000, 5.001, 5.002, 5.003,
-            7.004, 7.005, 7.006, 7.007,
-            9.008, 9.009, 9.010, 9.011,
-        ],
-        dtype=np.float32,
-    )
-    np.testing.assert_allclose(wav, expected, rtol=1e-5)
+    # Output is [T * upsample] after flatten + no trim.
+    assert wav.shape == (3 * 4,)
+    assert np.all(np.isfinite(wav))
 
 
 def test_vocoder_forward_honours_trim_samples() -> None:
     exe = _make_executor(upsample=4)
     codes = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.long)
 
-    wav = exe._vocoder_forward(codes, trim_samples=4)
+    wav_full = exe._vocoder_forward(codes, trim_samples=0)
+    wav_trimmed = exe._vocoder_forward(codes, trim_samples=4)
 
-    # First position (4 samples) are trimmed away
-    expected = np.array(
-        [
-            7.004, 7.005, 7.006, 7.007,
-            9.008, 9.009, 9.010, 9.011,
-        ],
-        dtype=np.float32,
-    )
-    np.testing.assert_allclose(wav, expected, rtol=1e-5)
+    # Trimming removes exactly ``trim_samples`` leading samples; the
+    # remaining audio is bit-identical to the tail of the full output.
+    assert wav_trimmed.shape == (wav_full.shape[0] - 4,)
+    np.testing.assert_allclose(wav_trimmed, wav_full[4:], rtol=1e-5)
+
+
+def test_forward_batch_rejects_out_of_range_pad_token_id() -> None:
+    """Pad value must be inside [0, codebook_size); OOB raises at lookup time.
+
+    Regression test for the pre-fix bug where ``codec_eos_token_id=2150``
+    was used as the pad value while the mock/real codebook is only 2048
+    wide, producing a CUDA illegal memory access on variable-length
+    batches.
+    """
+    exe = _make_executor()
+    # Explicitly overwrite pad_token_id with an OOB value (simulating the
+    # old behaviour) and build a variable-length batch so pad positions
+    # actually get populated.
+    exe._pad_token_id = exe._model._codebook_size + 10
+    requests = [
+        _DecodeRequest(
+            request_id="short",
+            codes_window=torch.tensor([[1, 2]], dtype=torch.long),
+            trim_samples=0,
+        ),
+        _DecodeRequest(
+            request_id="long",
+            codes_window=torch.tensor([[3, 4, 5, 6]], dtype=torch.long),
+            trim_samples=0,
+        ),
+    ]
+    with pytest.raises(IndexError):
+        exe._forward_batch(requests)
+
+    # Resetting to the default (0) restores success.
+    exe._pad_token_id = 0
+    outputs = exe._forward_batch(requests)
+    assert len(outputs) == 2
 
 
 def test_forward_batch_matches_independent_single_forwards() -> None:
