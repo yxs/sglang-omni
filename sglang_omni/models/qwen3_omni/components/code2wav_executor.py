@@ -23,6 +23,7 @@ from sglang_omni.proto import StagePayload
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_BATCH_SIZE: int = 16
+_DEFAULT_NUM_QUANTIZERS: int = 16  # Qwen3-Omni RVQ depth
 
 
 @dataclass
@@ -91,6 +92,8 @@ class _Code2WavStreamingExecutor(Executor):
         sample_rate: int = 24000,
         codec_eos_token_id: int = 2150,
         max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
+        num_quantizers: int = _DEFAULT_NUM_QUANTIZERS,
+        warmup: bool = True,
     ):
         self._model = model
         self._device = torch.device(device)
@@ -100,6 +103,7 @@ class _Code2WavStreamingExecutor(Executor):
         self._codec_eos_token_id = codec_eos_token_id
         self._total_upsample = int(getattr(model, "total_upsample", 1))
         self._max_batch_size = max(int(max_batch_size), 1)
+        self._num_quantizers = int(num_quantizers)
         self._stream_queue: Any | None = None
         self._done: asyncio.Queue[str] = asyncio.Queue()
         self._tasks: dict[str, asyncio.Task[StagePayload]] = {}
@@ -109,6 +113,9 @@ class _Code2WavStreamingExecutor(Executor):
         # Micro-batch scheduling state (replaces the old _gpu_lock)
         self._pending: asyncio.Queue[_DecodeRequest] = asyncio.Queue()
         self._batch_loop_task: asyncio.Task[None] | None = None
+
+        if warmup:
+            self.warmup()
 
     # ------------------------------------------------------------------
     # Executor interface
@@ -352,6 +359,42 @@ class _Code2WavStreamingExecutor(Executor):
             raise
 
     # ------------------------------------------------------------------
+    # MIOpen / cuDNN kernel warmup
+    # ------------------------------------------------------------------
+
+    @torch.no_grad()
+    def warmup(self) -> None:
+        """Prime MIOpen / cuDNN kernel caches for all expected batch sizes.
+
+        On ROCm, MIOpen JIT-compiles a conv solver the first time it sees
+        a new ``(batch, channels, seq_len)`` shape — this can take several
+        seconds per shape and would otherwise be paid on the first real
+        request at each batch size.  We pay it once at construction time
+        by running a dummy forward at every batch size the micro-batch
+        scheduler can actually produce: 1 (fast path), small powers of
+        two, and ``max_batch_size``.  ``torch.cuda.synchronize`` ensures
+        the compilation is complete before we return.  No-op on CPU.
+        """
+        if self._device.type != "cuda":
+            return
+        sizes = sorted({1, 2, 4, 8, self._max_batch_size})
+        torch.cuda.set_device(self._device)
+        for b in sizes:
+            if b < 1 or b > self._max_batch_size:
+                continue
+            dummy = torch.full(
+                (b, self._num_quantizers, self._stream_chunk_size),
+                fill_value=self._codec_eos_token_id,
+                dtype=torch.long,
+                device=self._device,
+            )
+            _ = self._model(dummy)
+        torch.cuda.synchronize(self._device)
+        logger.info(
+            "Code2Wav MIOpen warmup complete: primed batch sizes %s", sizes
+        )
+
+    # ------------------------------------------------------------------
     # GPU forward paths (run in thread pool)
     # ------------------------------------------------------------------
 
@@ -435,6 +478,8 @@ def create_code2wav_executor(
     gpu_id: int | None = None,
     stream_chunk_size: int = 10,
     left_context_size: int = 25,
+    num_quantizers: int = _DEFAULT_NUM_QUANTIZERS,
+    warmup: bool = True,
 ) -> Executor:
     """Create Code2Wav executor that streams waveform chunks."""
     if gpu_id is not None:
@@ -446,4 +491,6 @@ def create_code2wav_executor(
         stream_chunk_size=stream_chunk_size,
         left_context_size=left_context_size,
         max_batch_size=max_batch_size,
+        num_quantizers=num_quantizers,
+        warmup=warmup,
     )
