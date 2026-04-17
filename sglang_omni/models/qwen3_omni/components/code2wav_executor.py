@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -383,11 +384,18 @@ class _Code2WavStreamingExecutor(Executor):
         """
         if self._device.type != "cuda":
             return
-        sizes = sorted({1, 2, 4, 8, self._max_batch_size})
+        sizes = sorted({
+            b for b in {1, 2, 4, 8, self._max_batch_size}
+            if 1 <= b <= self._max_batch_size
+        })
+        logger.info(
+            "Code2Wav MIOpen warmup: priming batch sizes %s on %s "
+            "(may take several seconds on ROCm)",
+            sizes, self._device,
+        )
         torch.cuda.set_device(self._device)
+        start = time.perf_counter()
         for b in sizes:
-            if b < 1 or b > self._max_batch_size:
-                continue
             dummy = torch.full(
                 (b, self._num_quantizers, self._stream_chunk_size),
                 fill_value=self._pad_token_id,
@@ -397,7 +405,8 @@ class _Code2WavStreamingExecutor(Executor):
             _ = self._model(dummy)
         torch.cuda.synchronize(self._device)
         logger.info(
-            "Code2Wav MIOpen warmup complete: primed batch sizes %s", sizes
+            "Code2Wav MIOpen warmup complete in %.2fs (batch sizes %s)",
+            time.perf_counter() - start, sizes,
         )
 
     # ------------------------------------------------------------------
