@@ -59,14 +59,28 @@ logger = logging.getLogger("bench_code2wav")
 
 @dataclass
 class LevelResult:
+    """Per-concurrency-level summary.
+
+    Metric naming intentionally follows vllm-omni PR #1246 / vllm bench
+    serve conventions so that sglang-omni data is directly comparable.
+    """
+
     concurrency: int
     num_requests: int
     total_wall_s: float
+    # Per-request end-to-end latency (equivalent to vllm-omni's E2EL)
     per_request_latency_ms_mean: float
     per_request_latency_ms_p50: float
     per_request_latency_ms_p95: float
     per_request_latency_ms_p99: float
+    # Request throughput = num_requests / wall_time
     throughput_req_per_s: float
+    # Audio duration synthesized in total (s); fixed by config, not measured
+    audio_duration_s: float
+    # Audio Real-Time Factor = wall_time / audio_duration; <1.0 = faster than realtime
+    audio_rtf: float
+    # Audio throughput = audio_duration / wall_time (vllm-omni AUDIO_THROUGHPUT)
+    audio_throughput_s_per_s: float
 
 
 async def _drive_one(
@@ -119,6 +133,8 @@ async def run_level(
     num_quantizers: int,
     device: torch.device,
     request_seq_start: int,
+    total_upsample: int,
+    sample_rate: int,
 ) -> tuple[LevelResult, int]:
     """Fire ``num_requests`` requests with the given concurrency cap."""
     sem = asyncio.Semaphore(concurrency)
@@ -163,6 +179,12 @@ async def run_level(
         k = max(0, min(len(xs) - 1, int(round((p / 100.0) * (len(xs) - 1)))))
         return xs[k]
 
+    # Audio duration is deterministic from the config:
+    # each request produces chunks_per_request * total_upsample output samples;
+    # dividing by sample_rate gives seconds per request.
+    audio_per_req_s = chunks_per_request * total_upsample / sample_rate
+    audio_total_s = audio_per_req_s * num_requests
+
     return (
         LevelResult(
             concurrency=concurrency,
@@ -173,6 +195,9 @@ async def run_level(
             per_request_latency_ms_p95=_pct(latencies, 95),
             per_request_latency_ms_p99=_pct(latencies, 99),
             throughput_req_per_s=num_requests / wall if wall > 0 else 0.0,
+            audio_duration_s=audio_total_s,
+            audio_rtf=wall / audio_total_s if audio_total_s > 0 else 0.0,
+            audio_throughput_s_per_s=audio_total_s / wall if wall > 0 else 0.0,
         ),
         next_seq,
     )
@@ -219,16 +244,21 @@ async def main_async(args: argparse.Namespace) -> None:
             num_quantizers=args.num_quantizers,
             device=device,
             request_seq_start=request_seq,
+            total_upsample=exe._total_upsample,
+            sample_rate=exe._sample_rate,
         )
         results.append(lr)
         logger.info(
-            "  wall=%.3fs  mean=%.1fms  p50=%.1fms  p95=%.1fms  p99=%.1fms  tput=%.2f req/s",
+            "  wall=%.3fs  mean=%.1fms  p50=%.1fms  p95=%.1fms  p99=%.1fms  "
+            "tput=%.2f req/s  rtf=%.3f  audio_tput=%.2f s/s",
             lr.total_wall_s,
             lr.per_request_latency_ms_mean,
             lr.per_request_latency_ms_p50,
             lr.per_request_latency_ms_p95,
             lr.per_request_latency_ms_p99,
             lr.throughput_req_per_s,
+            lr.audio_rtf,
+            lr.audio_throughput_s_per_s,
         )
 
     # Shutdown any background tasks the optimized executor may have started
