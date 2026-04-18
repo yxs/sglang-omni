@@ -129,14 +129,14 @@ def _build_result_from_response(
         return result
 
     audio_obj = message.get("audio")
-    if not isinstance(audio_obj, dict) or not audio_obj.get("data"):
-        result.error = "No audio in response"
-        return result
-
-    wav_bytes = base64.b64decode(audio_obj["data"])
-    result.audio_duration_s = get_wav_duration(wav_bytes)
-    result.wav_path = _save_response_audio(wav_bytes, sample_id, save_audio_dir)
+    if isinstance(audio_obj, dict) and audio_obj.get("data"):
+        wav_bytes = base64.b64decode(audio_obj["data"])
+        result.audio_duration_s = get_wav_duration(wav_bytes)
+        result.wav_path = _save_response_audio(wav_bytes, sample_id, save_audio_dir)
+    # Note (Xuesong): accept text-only response as success for QA task (audio output not required for MMSU scoring).
     result.is_success = bool(result.text or result.audio_duration_s > 0)
+    if not result.is_success:
+        result.error = "Empty response"
     return result
 
 
