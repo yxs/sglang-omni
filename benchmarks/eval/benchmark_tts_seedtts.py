@@ -71,10 +71,11 @@ Accuracy (accuracy.wer)
 
 | Model  | Config           | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                         |
 | ------ | ---------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ------------------------------ |
-| S2-Pro | EN, stream=False | 1.02%      | 0.99%               | 0.00%                 | 0.034              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16] |
-| S2-Pro | EN, stream=True  | 0.97%      | 0.93%               | 0.00%                 | 0.033              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16] |
-| S2-Pro | ZH, stream=False | 1.15%      | 1.09%               | 0.00%                 | 0.027              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16] |
-| S2-Pro | ZH, stream=True  | 1.10%      | 1.05%               | 0.00%                 | 0.027              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16] |
+| S2-Pro | EN, stream=False | 1.02%      | 0.99%               | 0.00%                 | 3.4%               | 1088/1088 | 0       | PR #316 [H200, full-set, c=16] |
+| S2-Pro | EN, stream=True  | 0.97%      | 0.93%               | 0.00%                 | 3.3%               | 1088/1088 | 0       | PR #316 [H200, full-set, c=16] |
+| S2-Pro | ZH, stream=False | 1.15%      | 1.09%               | 0.00%                 | 2.7%               | 2020/2020 | 0       | PR #316 [H200, full-set, c=16] |
+| S2-Pro | ZH, stream=True  | 1.10%      | 1.05%               | 0.00%                 | 2.7%               | 2020/2020 | 0       | PR #316 [H200, full-set, c=16] |
+
 
 Generation speed (generation.speed)
 
@@ -84,6 +85,12 @@ Generation speed (generation.speed)
 | S2-Pro | EN, stream=True  | 15.172         | 24.686        | 4.047    | 1.051          | 50.1           | 43.8          | PR #316 [H200, full-set, c=16] |
 | S2-Pro | ZH, stream=False | 15.934         | 24.903        | 2.986    | 1.001          | 45.9           | 40.8          | PR #316 [H200, full-set, c=16] |
 | S2-Pro | ZH, stream=True  | 13.913         | 22.303        | 2.608    | 1.146          | 48.2           | 44.0          | PR #316 [H200, full-set, c=16] |
+
+Note (Chenyang): tok_per_s_{mean,agg} here counts S2-Pro's codec tokens.  It is NOT
+comparable to the tok_per_s column reported for Qwen3-Omni in benchmark_omni_seedtts.py,
+whose tokens are discrete talker LM tokens emitted at audio frame rate. Cross-model
+comparison of this column is not meaningful — use latency_mean_s / rtf_mean / throughput_qps
+instead when comparing backends.
 
 ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
 

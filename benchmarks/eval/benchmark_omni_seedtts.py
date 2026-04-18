@@ -56,21 +56,28 @@ Last verified: 2026-04-18
 
 Accuracy (accuracy.wer)
 
-| Model      | Config            | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                              |
-| ---------- | ----------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ----------------------------------- |
-| Qwen3-Omni | EN, voice_clone=T | 2.10%      | 2.20%               | 0.00%                 | 0.070              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]      |
-| Qwen3-Omni | EN, voice_clone=F | 2.39%      | 2.34%               | 0.00%                 | 0.086              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]      |
-| Qwen3-Omni | ZH, voice_clone=T | 1.66%      | 1.63%               | 0.00%                 | 0.081              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]      |
-| Qwen3-Omni | ZH, voice_clone=F | 1.79%      | 1.72%               | 0.00%                 | 0.068              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]      |
+| Model      | Config            | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                         |
+| ---------- | ----------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ------------------------------ |
+| Qwen3-Omni | EN, voice_clone=T | 2.10%      | 2.20%               | 0.00%                 | 7.0%               | 1088/1088 | 0       | PR #316 [H200, full-set, c=16] |
+| Qwen3-Omni | EN, voice_clone=F | 2.39%      | 2.34%               | 0.00%                 | 8.6%               | 1088/1088 | 0       | PR #316 [H200, full-set, c=16] |
+| Qwen3-Omni | ZH, voice_clone=T | 1.66%      | 1.63%               | 0.00%                 | 8.1%               | 2020/2020 | 0       | PR #316 [H200, full-set, c=16] |
+| Qwen3-Omni | ZH, voice_clone=F | 1.79%      | 1.72%               | 0.00%                 | 6.8%               | 2020/2020 | 0       | PR #316 [H200, full-set, c=16] |
+
 
 Generation speed (generation.speed)
 
-| Model      | Config            | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                              |
-| ---------- | ----------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ----------------------------------- |
-| Qwen3-Omni | EN, voice_clone=T | 62.70          | 95.72         | 17.49    | 0.254          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-| Qwen3-Omni | EN, voice_clone=F | 62.31          | 93.69         | 17.38    | 0.256          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-| Qwen3-Omni | ZH, voice_clone=T | 73.31          | 98.57         | 17.61    | 0.218          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-| Qwen3-Omni | ZH, voice_clone=F | 70.75          | 94.03         | 16.99    | 0.226          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
+| Model      | Config            | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                         |
+| ---------- | ----------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ------------------------------ |
+| Qwen3-Omni | EN, voice_clone=T | 62.70          | 95.72         | 17.49    | 0.254          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16] |
+| Qwen3-Omni | EN, voice_clone=F | 62.31          | 93.69         | 17.38    | 0.256          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16] |
+| Qwen3-Omni | ZH, voice_clone=T | 73.31          | 98.57         | 17.61    | 0.218          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16] |
+| Qwen3-Omni | ZH, voice_clone=F | 70.75          | 94.03         | 16.99    | 0.226          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16] |
+
+Note (Chenyang): tok_per_s_{mean,agg} here counts Qwen3-Omni's discrete talker LM
+tokens (code tokens driving code2wav) and therefore runs at audio frame rate, thus
+ the values are sub-1. It is NOT comparable to the tok_per_s column reported for
+codec-token TTS models (e.g. S2-Pro in benchmark_tts_seedtts.py); the two backends
+emit token streams with different semantics and rates.
 
 ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
 
