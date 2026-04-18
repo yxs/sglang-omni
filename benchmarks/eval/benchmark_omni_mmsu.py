@@ -33,7 +33,6 @@
 # TODO(@PopSoda2002): re-run on H200 — PR #261 did not report latency_mean_s/throughput_qps for the full 5000-sample run
 # | Qwen3-Omni | modalities=text+audio | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
 # TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
-# =============================================================================
 
 from __future__ import annotations
 
