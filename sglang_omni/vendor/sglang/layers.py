@@ -14,14 +14,7 @@ from __future__ import annotations
 from typing import Optional, Tuple, Union
 
 import torch
-
-try:
-    from sgl_kernel import top_k_top_p_sampling_from_probs
-except ImportError:
-    # ROCm build of sgl_kernel (0.4.0) ships only renorm primitives; fall
-    # back to flashinfer, which is present in both CUDA and ROCm containers
-    # and has a compatible signature: (probs, top_k, top_p, ...) -> indices.
-    from flashinfer.sampling import top_k_top_p_sampling_from_probs
+from sgl_kernel import top_k_top_p_sampling_from_probs
 from sglang.srt.layers.activation import SiluAndMul
 from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes
 from sglang.srt.layers.dp_attention import get_attention_tp_rank, get_attention_tp_size
