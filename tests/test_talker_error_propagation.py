@@ -1,4 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
+"""Regression tests for talker executor OOM propagation.
+
+Covers both Ming-Omni and Qwen3-Omni talker TTS paths, ensuring CUDA
+OOM errors surface to callers instead of being swallowed into silent
+None-waveform fallbacks.
+
+Reference: https://github.com/sgl-project/sglang-omni/issues/300
+
+Author:
+Xuesong Ye https://github.com/yxs
+"""
+
 from __future__ import annotations
 
 import pytest
