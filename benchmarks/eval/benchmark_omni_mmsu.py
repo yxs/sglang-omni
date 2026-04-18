@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """MMSU benchmark."""
 
-# =============================================================================
 # H200 Full-Set Reference Results
-# -----------------------------------------------------------------------------
 # Reproducibility references for the FULL eval set — NOT CI thresholds.
 # CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
 # If your PR moves any of these numbers, call it out in the PR description.
