@@ -185,11 +185,11 @@ class MingTalkerExecutor(Executor):
             return
 
         t0 = time.time()
-        logger.info(f"[TALKER] Starting TTS generation for {len(text)} chars...")
+        logger.debug(f"[TALKER] Starting TTS generation for {len(text)} chars...")
         waveform, sample_rate, duration = await asyncio.to_thread(
             self._generate_speech, text
         )
-        logger.info(
+        logger.debug(
             f"[TALKER] TTS done in {time.time() - t0:.1f}s, audio={duration:.2f}s"
         )
 
