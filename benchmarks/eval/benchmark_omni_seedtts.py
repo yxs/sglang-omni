@@ -43,38 +43,42 @@ CI Usage:
         --meta seedtts_testset/en/meta.lst \
         --output-dir results/qwen3_omni_en \
         --model qwen3-omni --lang en --device cuda:0
-"""
 
-# H200 Full-Set Reference Results
-# Reproducibility references for the FULL eval set — NOT CI thresholds.
-# CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
-# If your PR moves any of these numbers, call it out in the PR description.
-#
-# Benchmark: SeedTTS  |  Dataset: seed-tts-eval, full set
-# Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
-# Last verified: 2026-04-18
-#
-# Accuracy (accuracy.wer)
-# | Model      | Config            | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                              |
-# | ---------- | ----------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ----------------------------------- |
-# | Qwen3-Omni | EN, voice_clone=T | 2.10%      | 2.20%               | 0.00%                 | 0.070              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]      |
-# | Qwen3-Omni | EN, voice_clone=F | 2.39%      | 2.34%               | 0.00%                 | 0.086              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]      |
-# | Qwen3-Omni | ZH, voice_clone=T | 1.66%      | 1.63%               | 0.00%                 | 0.081              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]      |
-# | Qwen3-Omni | ZH, voice_clone=F | 1.79%      | 1.72%               | 0.00%                 | 0.068              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]      |
-#
-# Generation speed (generation.speed)
-# | Model      | Config            | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                              |
-# | ---------- | ----------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ----------------------------------- |
-# | Qwen3-Omni | EN, voice_clone=T | 62.70          | 95.72         | 17.49    | 0.254          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-# | Qwen3-Omni | EN, voice_clone=F | 62.31          | 93.69         | 17.38    | 0.256          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-# | Qwen3-Omni | ZH, voice_clone=T | 73.31          | 98.57         | 17.61    | 0.218          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-# | Qwen3-Omni | ZH, voice_clone=F | 70.75          | 94.03         | 16.99    | 0.226          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
-#
-# ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
-# | Lang | asr_latency_mean_s | asr_rtf_mean | asr_throughput_samples_per_s | Source                            |
-# | ---- | ------------------ | ------------ | ---------------------------- | --------------------------------- |
-# | EN   | 0.354              | 0.1039       | 2.83                         | PR #316 [H200, from VC=F run]     |
-# | ZH   | 0.344              | 0.0861       | 2.90                         | PR #316 [H200, from Qwen3-Omni ZH VC=T run] |
+
+H200 Full-Set Reference Results
+
+Reproducibility references for the FULL eval set — NOT CI thresholds.
+CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
+
+Benchmark: SeedTTS  |  Dataset: seed-tts-eval, full set
+Hardware:  1 x H200 (default; non-H200 sources are tagged in Source column)
+Last verified: 2026-04-18
+
+Accuracy (accuracy.wer)
+
+| Model      | Config            | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                              |
+| ---------- | ----------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ----------------------------------- |
+| Qwen3-Omni | EN, voice_clone=T | 2.10%      | 2.20%               | 0.00%                 | 0.070              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]      |
+| Qwen3-Omni | EN, voice_clone=F | 2.39%      | 2.34%               | 0.00%                 | 0.086              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]      |
+| Qwen3-Omni | ZH, voice_clone=T | 1.66%      | 1.63%               | 0.00%                 | 0.081              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]      |
+| Qwen3-Omni | ZH, voice_clone=F | 1.79%      | 1.72%               | 0.00%                 | 0.068              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]      |
+
+Generation speed (generation.speed)
+
+| Model      | Config            | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                              |
+| ---------- | ----------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ----------------------------------- |
+| Qwen3-Omni | EN, voice_clone=T | 62.70          | 95.72         | 17.49    | 0.254          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
+| Qwen3-Omni | EN, voice_clone=F | 62.31          | 93.69         | 17.38    | 0.256          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
+| Qwen3-Omni | ZH, voice_clone=T | 73.31          | 98.57         | 17.61    | 0.218          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
+| Qwen3-Omni | ZH, voice_clone=F | 70.75          | 94.03         | 16.99    | 0.226          | 0.2            | 0.2           | PR #316 [H200, full-set, c=16]      |
+
+ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
+
+| Lang | asr_latency_mean_s | asr_rtf_mean | asr_throughput_samples_per_s | Source                                      |
+| ---- | ------------------ | ------------ | ---------------------------- | ------------------------------------------- |
+| EN   | 0.354              | 0.1039       | 2.83                         | PR #316 [H200, from VC=F run]               |
+| ZH   | 0.344              | 0.0861       | 2.90                         | PR #316 [H200, from Qwen3-Omni ZH VC=T run] |
+"""
 
 from __future__ import annotations
 
