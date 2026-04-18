@@ -26,7 +26,8 @@
 # | Model      | Config                | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                                     |
 # | ---------- | --------------------- | -------------- | ------------- | -------------- | -------------- | ------------- | ------------------------------------------ |
 # | Qwen3-Omni | modalities=text       | 0.349          | 0.484         | 22.91          | 6.1            | 5.9           | PR #316 [H200, full-set, c=8]              |
-# | Qwen3-Omni | modalities=text+audio | 0.330          | 0.444         | 24.23          | 6.4            | 6.3           | PR #316 [H200, full-set, c=8]              |
+# | Qwen3-Omni | modalities=text+audio | 0.330          | 0.444         | 24.23          | 6.4            | 6.3           | PR #316 [H200, full-set, c=8, text-only server] |
+# Note (Xuesong): text+audio numbers above were measured against a text-only Qwen3-Omni server (talker disabled) because a full-pipeline run is blocked on Issue #276 (talker is c=1 only at ~2 min/sample). Numbers therefore reflect text-only behavior and are near-identical to the `modalities=text` row; re-run with talker enabled once #276 lands to get true full-pipeline reference.
 
 from __future__ import annotations
 
