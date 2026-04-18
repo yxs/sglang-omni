@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -23,11 +24,23 @@ from sglang_omni.proto import StagePayload
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_MAX_BATCH_SIZE: int = 16
+
+
+@dataclass
+class _PredictRequest:
+    request_id: str
+    talker_hidden: torch.Tensor
+    layer0_code: torch.Tensor
+    result_future: asyncio.Future[dict[str, torch.Tensor]] = field(
+        default=None,  # type: ignore[assignment]
+    )
+
 
 class _CodePredictorWrapper(nn.Module):
     """Wrap the HF talker to generate RVQ codes via the reference AR loop.
 
-    Processes a single chunk: one hidden state + one layer-0 codec code.
+    Processes a batch of chunks: B hidden states + B layer-0 codec codes.
     This mirrors HF's talker.prepare_inputs_for_generation() path so feedback
     embeddings match the reference implementation.
     """
@@ -39,17 +52,17 @@ class _CodePredictorWrapper(nn.Module):
     def forward(
         self, talker_hidden: torch.Tensor, layer0_code: torch.Tensor
     ) -> dict[str, torch.Tensor]:
-        """Run the HF code predictor on a single talker hidden state.
+        """Run the HF code predictor on a batch of talker hidden states.
 
         Args:
-            talker_hidden: [hidden_size] single position
-            layer0_code: scalar layer-0 codec code
+            talker_hidden: [B, hidden_size]
+            layer0_code: [B] layer-0 codec codes
 
         Returns:
-            {"codes": [num_code_groups], "summed_embeddings": [hidden_size]}
+            {"codes": [B, num_code_groups], "summed_embeddings": [B, hidden_size]}
         """
-        hidden = talker_hidden.unsqueeze(0).unsqueeze(0)
-        codes_input = layer0_code.reshape(1, 1)
+        hidden = talker_hidden.unsqueeze(1)
+        codes_input = layer0_code.unsqueeze(1)
         layer0_embed = self._talker.get_input_embeddings()(codes_input)
 
         predictor_result = self._talker.code_predictor.generate(
@@ -76,8 +89,8 @@ class _CodePredictorWrapper(nn.Module):
         summed_embeddings = codec_hiddens.sum(1)
 
         return {
-            "codes": result_codes[0],  # [num_code_groups]
-            "summed_embeddings": summed_embeddings[0],  # [hidden_size]
+            "codes": result_codes,  # [B, num_code_groups]
+            "summed_embeddings": summed_embeddings,  # [B, hidden_size]
         }
 
 
@@ -164,14 +177,22 @@ class _CodePredictorStreamingExecutor(Executor):
     - `summed_embeddings` to `talker_ar` as feedback
     """
 
-    def __init__(self, model: nn.Module, device: str | torch.device):
+    def __init__(
+        self,
+        model: nn.Module,
+        device: str | torch.device,
+        *,
+        max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
+    ):
         self._model = model
         self._device = torch.device(device)
+        self._max_batch_size = max(int(max_batch_size), 1)
         self._results: asyncio.Queue[StagePayload] = asyncio.Queue()
         self._aborted: set[str] = set()
         self._stream_queue: Any | None = None  # Set by compiler
         self._stream_fn: Any | None = None  # Set by compiler
-        self._gpu_lock: asyncio.Lock = asyncio.Lock()
+        self._pending: asyncio.Queue[_PredictRequest] = asyncio.Queue()
+        self._batch_loop_task: asyncio.Task[None] | None = None
 
     async def add_request(self, payload: StagePayload) -> None:
         request_id = payload.request_id
@@ -180,6 +201,7 @@ class _CodePredictorStreamingExecutor(Executor):
         if self._stream_queue is None:
             raise RuntimeError("Code predictor requires a stream queue")
 
+        self._ensure_batch_loop()
         loop = asyncio.get_running_loop()
         chunk_count = 0
 
@@ -191,16 +213,25 @@ class _CodePredictorStreamingExecutor(Executor):
             if item is None:
                 break
 
-            model_inputs = {
-                "talker_hidden": item.data.to(device=self._device),
-                "layer0_code": torch.tensor(
-                    item.metadata["codec_code"],
-                    dtype=torch.long,
-                    device=self._device,
-                ),
-            }
-            async with self._gpu_lock:
-                output = await loop.run_in_executor(None, self._run_model, model_inputs)
+            talker_hidden = item.data.to(device=self._device)
+            layer0_code = torch.tensor(
+                item.metadata["codec_code"],
+                dtype=torch.long,
+                device=self._device,
+            )
+            req = _PredictRequest(
+                request_id=request_id,
+                talker_hidden=talker_hidden,
+                layer0_code=layer0_code,
+                result_future=loop.create_future(),
+            )
+            self._pending.put_nowait(req)
+
+            try:
+                output = await req.result_future
+            except asyncio.CancelledError:
+                break
+
             self._dispatch_outputs(request_id, output)
             chunk_count += 1
 
@@ -218,12 +249,6 @@ class _CodePredictorStreamingExecutor(Executor):
         summed_embeddings = output["summed_embeddings"]
         self._stream_fn(request_id, summed_embeddings, target_stage=TALKER_AR_STAGE)
         self._stream_fn(request_id, codes, target_stage=CODE2WAV_STAGE)
-
-    @torch.no_grad()
-    def _run_model(self, inputs: dict[str, Any]) -> dict[str, torch.Tensor]:
-        if self._device.type == "cuda":
-            torch.cuda.set_device(self._device)
-        return self._model(**inputs)
 
     def set_stream_fn(self, fn) -> None:
         """Set the streaming output callback. Sync, non-blocking."""
@@ -245,11 +270,77 @@ class _CodePredictorStreamingExecutor(Executor):
             except Exception:
                 pass
 
+    def _ensure_batch_loop(self) -> None:
+        if self._batch_loop_task is None or self._batch_loop_task.done():
+            self._batch_loop_task = asyncio.create_task(self._batch_predict_loop())
+
+    async def _batch_predict_loop(self) -> None:
+        # Note (Xuesong): swallow step-level failures so one bad batch cannot
+        # deadlock future callers; per-request propagation is in the step.
+        while True:
+            try:
+                await self._batch_predict_step()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("code predictor batch loop iteration failed")
+
+    async def _batch_predict_step(self) -> None:
+        loop = asyncio.get_running_loop()
+
+        first = await self._pending.get()
+        batch: list[_PredictRequest] = [first]
+
+        while not self._pending.empty() and len(batch) < self._max_batch_size:
+            try:
+                batch.append(self._pending.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        live = [r for r in batch if r.request_id not in self._aborted]
+        for r in batch:
+            if r.request_id in self._aborted and not r.result_future.done():
+                r.result_future.cancel()
+        if not live:
+            return
+
+        try:
+            outputs = await loop.run_in_executor(None, self._run_batch, live)
+            for req, output in zip(live, outputs):
+                if not req.result_future.done():
+                    req.result_future.set_result(output)
+        except Exception as exc:
+            for req in live:
+                if not req.result_future.done():
+                    req.result_future.set_exception(exc)
+            raise
+
+    @torch.no_grad()
+    def _run_batch(self, batch: list[_PredictRequest]) -> list[dict[str, torch.Tensor]]:
+        if self._device.type == "cuda":
+            torch.cuda.set_device(self._device)
+
+        talker_hidden = torch.stack([r.talker_hidden for r in batch], dim=0)
+        layer0_code = torch.stack([r.layer0_code for r in batch], dim=0)
+
+        out = self._model(talker_hidden=talker_hidden, layer0_code=layer0_code)
+        codes = out["codes"]
+        summed_embeddings = out["summed_embeddings"]
+
+        return [
+            {
+                "codes": codes[i],
+                "summed_embeddings": summed_embeddings[i],
+            }
+            for i in range(len(batch))
+        ]
+
 
 def create_code_predictor_executor(
     model_path: str,
     *,
     gpu_id: int = 0,
+    max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
 ) -> Executor:
     """Code Predictor executor — streaming mode.
 
@@ -261,7 +352,9 @@ def create_code_predictor_executor(
     device = f"cuda:{gpu_id}"
     model = _load_talker_model(model_path, gpu_id=gpu_id)
     wrapper = _CodePredictorWrapper(model)
-    return _CodePredictorStreamingExecutor(model=wrapper, device=device)
+    return _CodePredictorStreamingExecutor(
+        model=wrapper, device=device, max_batch_size=max_batch_size
+    )
 
 
 def create_code_predictor_executor_from_config(
@@ -272,7 +365,16 @@ def create_code_predictor_executor_from_config(
     server_args_overrides: dict[str, Any] | None = None,
 ) -> Executor:
     """Create Code Predictor executor from config args."""
+    # Note (Xuesong): kept in the signature for config.py compat; AR depth is
+    # fixed by num_code_groups so the seq_len knob has no effect here.
+    del code_predictor_max_seq_len
+    max_batch_size = _DEFAULT_MAX_BATCH_SIZE
+    if server_args_overrides:
+        max_batch_size = int(
+            server_args_overrides.get("code_predictor_max_batch_size", max_batch_size)
+        )
     return create_code_predictor_executor(
         model_path=model_path,
         gpu_id=gpu_id,
+        max_batch_size=max_batch_size,
     )
