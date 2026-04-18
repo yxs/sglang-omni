@@ -185,12 +185,12 @@ class MingTalkerExecutor(Executor):
             return
 
         t0 = time.time()
-        logger.info("[TALKER] Starting TTS generation for %d chars...", len(text))
+        logger.info(f"[TALKER] Starting TTS generation for {len(text)} chars...")
         waveform, sample_rate, duration = await asyncio.to_thread(
             self._generate_speech, text
         )
         logger.info(
-            "[TALKER] TTS done in %.1fs, audio=%.2fs", time.time() - t0, duration
+            f"[TALKER] TTS done in {time.time() - t0:.1f}s, audio={duration:.2f}s"
         )
 
         # Serialize tensor to bytes for cross-process msgpack transport
@@ -259,6 +259,10 @@ class MingTalkerExecutor(Executor):
 
         Returns:
             Tuple of (waveform tensor, sample_rate, duration in seconds).
+
+        Note (Xuesong): the (None, 44100, 0.0) returns below for "no supported
+        generation method" / "no waveforms produced" are pre-existing soft
+        failures, kept out of #300's OOM-propagation scope. Tracked in #188.
         """
         if self._talker is None:
             raise RuntimeError("Talker model not loaded")
