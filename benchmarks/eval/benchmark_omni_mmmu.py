@@ -29,23 +29,20 @@ Usage:
 #
 # Benchmark: MMMU     |  Dataset: MMMU_val (900 samples, all 30 subjects)
 # Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
-# Last verified: 2026-04-17
+# Last verified: 2026-04-18
 #
 # Accuracy (summary)
-# | Model      | Config             | accuracy | correct | failed | mc_fallback | Source                                  |
-# | ---------- | ------------------ | -------- | ------- | ------ | ----------- | --------------------------------------- |
-# | Qwen3-Omni | enable_audio=False | 66.44%   | 598/900 | 0      | TBD         | PR #260 (900 samples, max_tokens=2048)  |
-# TODO(@PasserBy4): fill mc_fallback — PR #260 body did not report this field
-# | Qwen3-Omni | enable_audio=True  | TBD      | TBD     | TBD    | TBD         | TBD                                     |
-# TODO(@PasserBy4): re-run on H200 — no enable_audio=True full-900 run exists in any PR
+# | Model      | Config             | accuracy | correct | failed | mc_fallback | Source                                     |
+# | ---------- | ------------------ | -------- | ------- | ------ | ----------- | ------------------------------------------ |
+# | Qwen3-Omni | enable_audio=False | 67.22%   | 605/900 | 0      | 21          | PR #316 [H200, full-set, c=8, max_tokens=2048] |
+# | Qwen3-Omni | enable_audio=True  | 46.00%   | 23/50   | 15     | 0           | PR #316 [H200, 50-sample subset, c=1, max_tokens=2048] |
+# Note (Xuesong): full 900 not run — Issue #276 talker is c=1 only and ~2 min/sample (~30 h for full set). 15/50 requests failed in audio generation (Issue #276); on the 35 completed requests accuracy = 65.7%.
 #
 # Speed (speed)
-# | Model      | Config             | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
-# | ---------- | ------------------ | -------------- | ------------- | -------------- | -------------- | ------------- | ------ |
-# | Qwen3-Omni | enable_audio=False | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# TODO(@PasserBy4): re-run on H200
-# | Qwen3-Omni | enable_audio=True  | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# TODO(@PasserBy4): re-run on H200
+# | Model      | Config             | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                                     |
+# | ---------- | ------------------ | -------------- | ------------- | -------------- | -------------- | ------------- | ------------------------------------------ |
+# | Qwen3-Omni | enable_audio=False | 25.70          | 96.38         | 0.308          | 19.6           | 19.9          | PR #316 [H200, full-set, c=8, max_tokens=2048] |
+# | Qwen3-Omni | enable_audio=True  | 123.13         | 221.52        | 0.004          | 2.2            | 2.1           | PR #316 [H200, **50-sample subset**, c=1, max_tokens=2048] |
 
 from __future__ import annotations
 

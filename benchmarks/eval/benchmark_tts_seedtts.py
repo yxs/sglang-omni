@@ -65,38 +65,29 @@ Usage (CI):
 #
 # Benchmark: SeedTTS  |  Dataset: seed-tts-eval, full set (EN=1088)
 # Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
-# Last verified: 2026-04-17
+# Last verified: 2026-04-18
 #
 # Accuracy (accuracy.wer)
 # | Model  | Config           | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                                         |
 # | ------ | ---------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ---------------------------------------------- |
-# | S2-Pro | EN, stream=False | 1.95%      | 1.83%               | 0.00%                 | 0.087              | 1088/1088 | 0       | PR #223 [H20, full-set, c=1]                   |
-# | S2-Pro | EN, stream=True  | 1.42%      | 1.37%               | 0.00%                 | TBD                | 50/50     | 0       | PR #242 [H20, 50-sample subset, c=1]           |
-# TODO(@Ratish1): re-run on H200 full-set to replace H20-subset fallback
-# | S2-Pro | ZH, stream=False | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD                                            |
-# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
-# | S2-Pro | ZH, stream=True  | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD                                            |
-# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
+# | S2-Pro | EN, stream=False | 1.02%      | 0.99%               | 0.00%                 | 0.034              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]                 |
+# | S2-Pro | EN, stream=True  | 0.97%      | 0.93%               | 0.00%                 | 0.033              | 1088/1088 | 0       | PR #316 [H200, full-set, c=16]                 |
+# | S2-Pro | ZH, stream=False | 1.15%      | 1.09%               | 0.00%                 | 0.027              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]                 |
+# | S2-Pro | ZH, stream=True  | 1.10%      | 1.05%               | 0.00%                 | 0.027              | 2020/2020 | 0       | PR #316 [H200, full-set, c=16]                 |
 #
 # Generation speed (generation.speed)
 # | Model  | Config           | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                                         |
 # | ------ | ---------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ---------------------------------------------- |
-# | S2-Pro | EN, stream=False | 7.647          | 11.412        | 2.0301   | 0.131          | 82.2           | 82.6          | PR #242 [H20, 50-sample subset, c=1]           |
-# TODO(@Ratish1): re-run on H200 full-set to replace H20-subset fallback
-# | S2-Pro | EN, stream=True  | 11.171         | TBD           | 2.6388   | 0.090          | TBD            | 19.7          | PR #242 [H20, 50-sample subset, c=1]           |
-# TODO(@Ratish1): re-run on H200 full-set to replace H20-subset fallback
-# | S2-Pro | ZH, stream=False | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                                            |
-# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
-# | S2-Pro | ZH, stream=True  | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                                            |
-# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
+# | S2-Pro | EN, stream=False | 13.724         | 21.163        | 3.604    | 1.161          | 45.5           | 25.7          | PR #316 [H200, full-set, c=16]                 |
+# | S2-Pro | EN, stream=True  | 15.172         | 24.686        | 4.047    | 1.051          | 50.1           | 43.8          | PR #316 [H200, full-set, c=16]                 |
+# | S2-Pro | ZH, stream=False | 15.934         | 24.903        | 2.986    | 1.001          | 45.9           | 40.8          | PR #316 [H200, full-set, c=16]                 |
+# | S2-Pro | ZH, stream=True  | 13.913         | 22.303        | 2.608    | 1.146          | 48.2           | 44.0          | PR #316 [H200, full-set, c=16]                 |
 #
 # ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
-# | Lang | asr_latency_mean_s | asr_rtf_mean | asr_throughput_samples_per_s | Source |
-# | ---- | ------------------ | ------------ | ---------------------------- | ------ |
-# | EN   | TBD                | TBD          | TBD                          | TBD    |
-# TODO(@Ratish1): re-run on H200
-# | ZH   | TBD                | TBD          | TBD                          | TBD    |
-# TODO(@Ratish1): re-run on H200
+# | Lang | asr_latency_mean_s | asr_rtf_mean | asr_throughput_samples_per_s | Source                                     |
+# | ---- | ------------------ | ------------ | ---------------------------- | ------------------------------------------ |
+# | EN   | 0.274              | 0.0713       | 3.65                         | PR #316 [H200, from S2-Pro stream=False run]   |
+# | ZH   | 0.357              | 0.0676       | 2.80                         | PR #316 [H200, from S2-Pro ZH stream=False run] |
 
 from __future__ import annotations
 

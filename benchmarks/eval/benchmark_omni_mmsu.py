@@ -8,31 +8,25 @@
 #
 # Benchmark: MMSU     |  Dataset: MMSU full (5000 samples)
 # Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
-# Last verified: 2026-04-17
+# Last verified: 2026-04-18
 #
 # Accuracy (accuracy)
 # | Model      | Config                | overall_accuracy | parseable_samples | unparseable_samples | Source                                           |
 # | ---------- | --------------------- | ---------------- | ----------------- | ------------------- | ------------------------------------------------ |
-# | Qwen3-Omni | modalities=text       | 72.08%           | 4999/5000         | 1                   | PR #261 [H100, full-set, c=1, max-tokens=32]     |
-# TODO(@PopSoda2002): re-run on H200 full-set to replace H100 fallback
-# | Qwen3-Omni | modalities=text+audio | TBD              | TBD               | TBD                 | TBD                                              |
-# TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
+# | Qwen3-Omni | modalities=text       | 70.88%           | 5000/5000         | 0                   | PR #316 [H200, full-set, c=8]                    |
+# | Qwen3-Omni | modalities=text+audio | 71.22%           | 5000/5000         | 0                   | PR #316 [H200, full-set, c=8]                    |
 #
 # Per-task accuracy (accuracy.per_task; top-level task names only — full sub/sub-sub trees stay in JSON output)
-# | Model      | Config                | per_task breakdown (highlights)                                                                                                           | Source                                       |
-# | ---------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-# | Qwen3-Omni | modalities=text       | strong: casual_reasoning / polysemy_reasoning / long_speech_summarization = 100%; weak: dialogue_turn_counting 15.15%, volume_comparison 23.64%, pitch_comparison 29.63% | PR #261 [H100, full-set]                     |
-# TODO(@PopSoda2002): re-run on H200 — populate full per_task dict
-# | Qwen3-Omni | modalities=text+audio | TBD                                                                                                                                       | TBD                                          |
-# TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
+# | Model      | Config                | per_task breakdown (highlights)                                                                                                              | Source                                       |
+# | ---------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+# | Qwen3-Omni | modalities=text       | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 10.10%, pitch_comparison 22.22%, speed_comparison 22.94% | PR #316 [H200, full-set]                     |
+# | Qwen3-Omni | modalities=text+audio | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 12.12%, speed_comparison 21.10%, pitch_comparison 24.07% | PR #316 [H200, full-set]                     |
 #
 # Speed (speed)
-# | Model      | Config                | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
-# | ---------- | --------------------- | -------------- | ------------- | -------------- | -------------- | ------------- | ------ |
-# | Qwen3-Omni | modalities=text       | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# TODO(@PopSoda2002): re-run on H200 — PR #261 did not report latency_mean_s/throughput_qps for the full 5000-sample run
-# | Qwen3-Omni | modalities=text+audio | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
+# | Model      | Config                | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                                     |
+# | ---------- | --------------------- | -------------- | ------------- | -------------- | -------------- | ------------- | ------------------------------------------ |
+# | Qwen3-Omni | modalities=text       | 0.349          | 0.484         | 22.91          | 6.1            | 5.9           | PR #316 [H200, full-set, c=8]              |
+# | Qwen3-Omni | modalities=text+audio | 0.330          | 0.444         | 24.23          | 6.4            | 6.3           | PR #316 [H200, full-set, c=8]              |
 
 from __future__ import annotations
 
