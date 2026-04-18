@@ -30,23 +30,24 @@ Usage:
 # If your PR moves any of these numbers, call it out in the PR description.
 #
 # Benchmark: MMMU     |  Dataset: MMMU_val (900 samples, all 30 subjects)
-# Hardware:  1× H200  |  Last verified: 2026-04-17
+# Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
+# Last verified: 2026-04-17
 #
 # Accuracy (summary)
-# | Model      | Config             | accuracy | correct | failed | mc_fallback | Source |
-# | ---------- | ------------------ | -------- | ------- | ------ | ----------- | ------ |
-# | Qwen3-Omni | enable_audio=False | TBD      | TBD     | TBD    | TBD         | TBD    |
-# # TODO(@PasserBy4): re-run on H200
-# | Qwen3-Omni | enable_audio=True  | TBD      | TBD     | TBD    | TBD         | TBD    |
-# # TODO(@PasserBy4): re-run on H200
+# | Model      | Config             | accuracy | correct | failed | mc_fallback | Source                                  |
+# | ---------- | ------------------ | -------- | ------- | ------ | ----------- | --------------------------------------- |
+# | Qwen3-Omni | enable_audio=False | 66.44%   | 598/900 | 0      | TBD         | PR #260 (900 samples, max_tokens=2048)  |
+# TODO(@PasserBy4): fill mc_fallback — PR #260 body did not report this field
+# | Qwen3-Omni | enable_audio=True  | TBD      | TBD     | TBD    | TBD         | TBD                                     |
+# TODO(@PasserBy4): re-run on H200 — no enable_audio=True full-900 run exists in any PR
 #
 # Speed (speed)
 # | Model      | Config             | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
 # | ---------- | ------------------ | -------------- | ------------- | -------------- | -------------- | ------------- | ------ |
 # | Qwen3-Omni | enable_audio=False | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@PasserBy4): re-run on H200
+# TODO(@PasserBy4): re-run on H200
 # | Qwen3-Omni | enable_audio=True  | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@PasserBy4): re-run on H200
+# TODO(@PasserBy4): re-run on H200
 # =============================================================================
 
 from __future__ import annotations

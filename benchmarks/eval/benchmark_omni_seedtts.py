@@ -53,39 +53,40 @@ CI Usage:
 # If your PR moves any of these numbers, call it out in the PR description.
 #
 # Benchmark: SeedTTS  |  Dataset: seed-tts-eval, full set
-# Hardware:  1× H200  |  Last verified: 2026-04-17
+# Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
+# Last verified: 2026-04-17
 #
 # Accuracy (accuracy.wer)
 # | Model      | Config            | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                       |
 # | ---------- | ----------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ---------------------------- |
 # | Qwen3-Omni | EN, voice_clone=T | 2.45%      | 2.50%               | TBD                   | 0.11               | 1082/1088 | 6       | PR #280 (Split mode, c=16)   |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): fill wer_per_sample_median — PR #280 Split mode post reported mean+std only
 # | Qwen3-Omni | EN, voice_clone=F | 2.13%      | 2.25%               | TBD                   | 0.08               | 1087/1088 | 1       | PR #280 (Split mode, c=16)   |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): fill wer_per_sample_median — PR #280 Split mode post reported mean+std only
 # | Qwen3-Omni | ZH, voice_clone=T | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD                          |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200 — no ZH SeedTTS run exists in any PR (exhaustive scan confirmed 310 items)
 # | Qwen3-Omni | ZH, voice_clone=F | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD                          |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200 — no ZH SeedTTS run exists in any PR (exhaustive scan confirmed 310 items)
 #
 # Generation speed (generation.speed)
 # | Model      | Config            | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                       |
 # | ---------- | ----------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ---------------------------- |
 # | Qwen3-Omni | EN, voice_clone=T | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                          |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200 — no VC=T speed measurement exists at any concurrency in any PR
 # | Qwen3-Omni | EN, voice_clone=F | 5.62           | TBD           | 1.57     | 0.178          | TBD            | TBD           | PR #280 (c=1, 2-run mean)    |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): fill latency_p95_s / tok_per_s_mean / tok_per_s_agg — Gaokai's c=1 post reported latency_mean / rtf_mean / throughput_qps only
 # | Qwen3-Omni | ZH, voice_clone=T | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                          |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200
 # | Qwen3-Omni | ZH, voice_clone=F | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                          |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200
 #
 # ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
 # | Lang | asr_latency_mean_s | asr_rtf_mean | asr_throughput_samples_per_s | Source |
 # | ---- | ------------------ | ------------ | ---------------------------- | ------ |
 # | EN   | TBD                | TBD          | TBD                          | TBD    |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200
 # | ZH   | TBD                | TBD          | TBD                          | TBD    |
-# # TODO(@zhaochenyang20): re-run on H200
+# TODO(@zhaochenyang20): re-run on H200
 # =============================================================================
 
 from __future__ import annotations

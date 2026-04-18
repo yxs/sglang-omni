@@ -65,40 +65,40 @@ Usage (CI):
 # CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
 # If your PR moves any of these numbers, call it out in the PR description.
 #
-# Benchmark: SeedTTS  |  Dataset: seed-tts-eval, full set
-# Hardware:  1× H200  |  Last verified: 2026-04-17
+# Benchmark: SeedTTS  |  Dataset: seed-tts-eval, full set (EN=1088)
+# Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
+# Last verified: 2026-04-17
 #
 # Accuracy (accuracy.wer)
-# | Model  | Config           | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source |
-# | ------ | ---------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ------ |
-# | S2-Pro | EN, stream=False | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD    |
-# # TODO(@Ratish1): re-run on H200
-# | S2-Pro | EN, stream=True  | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD    |
-# # TODO(@Ratish1): re-run on H200
-# | S2-Pro | ZH, stream=False | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD    |
-# # TODO(@Ratish1): re-run on H200
-# | S2-Pro | ZH, stream=True  | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD    |
-# # TODO(@Ratish1): re-run on H200
+# | Model  | Config           | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                                         |
+# | ------ | ---------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ---------------------------------------------- |
+# | S2-Pro | EN, stream=False | 1.95%      | 1.83%               | 0.00%                 | 0.087              | 1088/1088 | 0       | PR #223 [H20, full-set, c=1]                   |
+# | S2-Pro | EN, stream=True  | 1.42%      | 1.37%               | 0.00%                 | TBD                | 50/50     | 0       | PR #242 [H20, 50-sample subset, c=1]           |
+# TODO(@Ratish1): re-run on H200 full-set to replace H20-subset fallback
+# | S2-Pro | ZH, stream=False | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD                                            |
+# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
+# | S2-Pro | ZH, stream=True  | TBD        | TBD                 | TBD                   | TBD                | TBD       | TBD     | TBD                                            |
+# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
 #
 # Generation speed (generation.speed)
-# | Model  | Config           | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
-# | ------ | ---------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ------ |
-# | S2-Pro | EN, stream=False | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@Ratish1): re-run on H200
-# | S2-Pro | EN, stream=True  | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@Ratish1): re-run on H200
-# | S2-Pro | ZH, stream=False | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@Ratish1): re-run on H200
-# | S2-Pro | ZH, stream=True  | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@Ratish1): re-run on H200
+# | Model  | Config           | latency_mean_s | latency_p95_s | rtf_mean | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                                         |
+# | ------ | ---------------- | -------------- | ------------- | -------- | -------------- | -------------- | ------------- | ---------------------------------------------- |
+# | S2-Pro | EN, stream=False | 7.647          | 11.412        | 2.0301   | 0.131          | 82.2           | 82.6          | PR #242 [H20, 50-sample subset, c=1]           |
+# TODO(@Ratish1): re-run on H200 full-set to replace H20-subset fallback
+# | S2-Pro | EN, stream=True  | 11.171         | TBD           | 2.6388   | 0.090          | TBD            | 19.7          | PR #242 [H20, 50-sample subset, c=1]           |
+# TODO(@Ratish1): re-run on H200 full-set to replace H20-subset fallback
+# | S2-Pro | ZH, stream=False | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                                            |
+# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
+# | S2-Pro | ZH, stream=True  | TBD            | TBD           | TBD      | TBD            | TBD            | TBD           | TBD                                            |
+# TODO(@Ratish1): re-run on H200 — no ZH SeedTTS run exists in any prior PR
 #
 # ASR speed (accuracy.asr_speed) — Whisper-large-v3 for EN, FunASR paraformer-zh for ZH
 # | Lang | asr_latency_mean_s | asr_rtf_mean | asr_throughput_samples_per_s | Source |
 # | ---- | ------------------ | ------------ | ---------------------------- | ------ |
 # | EN   | TBD                | TBD          | TBD                          | TBD    |
-# # TODO(@Ratish1): re-run on H200
+# TODO(@Ratish1): re-run on H200
 # | ZH   | TBD                | TBD          | TBD                          | TBD    |
-# # TODO(@Ratish1): re-run on H200
+# TODO(@Ratish1): re-run on H200
 # =============================================================================
 
 from __future__ import annotations

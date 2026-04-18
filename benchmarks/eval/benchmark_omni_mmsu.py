@@ -9,31 +9,32 @@
 # If your PR moves any of these numbers, call it out in the PR description.
 #
 # Benchmark: MMSU     |  Dataset: MMSU full (5000 samples)
-# Hardware:  1× H200  |  Last verified: 2026-04-17
+# Hardware:  1× H200 (default; non-H200 sources are tagged in Source column)
+# Last verified: 2026-04-17
 #
 # Accuracy (accuracy)
-# | Model      | Config                | overall_accuracy | parseable_samples | unparseable_samples | Source |
-# | ---------- | --------------------- | ---------------- | ----------------- | ------------------- | ------ |
-# | Qwen3-Omni | modalities=text       | TBD              | TBD               | TBD                 | TBD    |
-# # TODO(@PopSoda2002): re-run on H200
-# | Qwen3-Omni | modalities=text+audio | TBD              | TBD               | TBD                 | TBD    |
-# # TODO(@PopSoda2002): re-run on H200
+# | Model      | Config                | overall_accuracy | parseable_samples | unparseable_samples | Source                                           |
+# | ---------- | --------------------- | ---------------- | ----------------- | ------------------- | ------------------------------------------------ |
+# | Qwen3-Omni | modalities=text       | 72.08%           | 4999/5000         | 1                   | PR #261 [H100, full-set, c=1, max-tokens=32]     |
+# TODO(@PopSoda2002): re-run on H200 full-set to replace H100 fallback
+# | Qwen3-Omni | modalities=text+audio | TBD              | TBD               | TBD                 | TBD                                              |
+# TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
 #
 # Per-task accuracy (accuracy.per_task; top-level task names only — full sub/sub-sub trees stay in JSON output)
-# | Model      | Config                | per_task breakdown  | Source |
-# | ---------- | --------------------- | ------------------- | ------ |
-# | Qwen3-Omni | modalities=text       | TBD                 | TBD    |
-# # TODO(@PopSoda2002): re-run on H200
-# | Qwen3-Omni | modalities=text+audio | TBD                 | TBD    |
-# # TODO(@PopSoda2002): re-run on H200
+# | Model      | Config                | per_task breakdown (highlights)                                                                                                           | Source                                       |
+# | ---------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+# | Qwen3-Omni | modalities=text       | strong: casual_reasoning / polysemy_reasoning / long_speech_summarization = 100%; weak: dialogue_turn_counting 15.15%, volume_comparison 23.64%, pitch_comparison 29.63% | PR #261 [H100, full-set]                     |
+# TODO(@PopSoda2002): re-run on H200 — populate full per_task dict
+# | Qwen3-Omni | modalities=text+audio | TBD                                                                                                                                       | TBD                                          |
+# TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
 #
 # Speed (speed)
 # | Model      | Config                | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source |
 # | ---------- | --------------------- | -------------- | ------------- | -------------- | -------------- | ------------- | ------ |
 # | Qwen3-Omni | modalities=text       | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@PopSoda2002): re-run on H200
+# TODO(@PopSoda2002): re-run on H200 — PR #261 did not report latency_mean_s/throughput_qps for the full 5000-sample run
 # | Qwen3-Omni | modalities=text+audio | TBD            | TBD           | TBD            | TBD            | TBD           | TBD    |
-# # TODO(@PopSoda2002): re-run on H200
+# TODO(@PopSoda2002): re-run on H200 — no text+audio full-set run exists
 # =============================================================================
 
 from __future__ import annotations
