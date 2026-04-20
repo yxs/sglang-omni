@@ -212,8 +212,8 @@ class Qwen3OmniSpeechPipelineConfig(PipelineConfig):
         StageConfig(
             name=CODE2WAV_STAGE,
             executor=ExecutorConfig(
-                factory="sglang_omni.models.qwen3_omni.components.code2wav_executor.create_code2wav_executor",
-                args={"device": "cuda"},
+                factory="sglang_omni.models.qwen3_omni.components.code2wav_executor.create_code2wav_executor_from_config",
+                args={"server_args_overrides": {}},
             ),
             get_next="sglang_omni.models.qwen3_omni.pipeline.next_stage.code2wav_next",
             relay=RelayConfig(device="cuda"),

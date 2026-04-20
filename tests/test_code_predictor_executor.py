@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Parity + abort tests for ``_CodePredictorStreamingExecutor``."""
+"""Unit tests for ``_CodePredictorWrapper`` and ``_CodePredictorStreamingExecutor``."""
 
 from __future__ import annotations
 
@@ -21,6 +21,11 @@ from sglang_omni.models.qwen3_omni.components.code_predictor_executor import (
     _CodePredictorStreamingExecutor,
     _CodePredictorWrapper,
     _LightweightTalkerShell,
+    _PredictRequest,
+)
+from sglang_omni.models.qwen3_omni.pipeline.next_stage import (
+    CODE2WAV_STAGE,
+    TALKER_AR_STAGE,
 )
 
 _TINY_HIDDEN_SIZE = 64
@@ -205,9 +210,12 @@ async def test_abort_stops_dispatch(
     exe._stream_queue = stream_queue
 
     dispatched: list[tuple[str, Any]] = []
+    first_chunk_done = asyncio.Event()
 
     def capture(request_id: str, tensor: torch.Tensor, *, target_stage: str) -> None:
         dispatched.append((request_id, target_stage))
+        if len(dispatched) >= 2:
+            first_chunk_done.set()
 
     exe.set_stream_fn(capture)
 
@@ -227,8 +235,15 @@ async def test_abort_stops_dispatch(
     stream_queue.put(
         rid, _FakeStreamItem(data=torch.randn(_TINY_HIDDEN_SIZE), codec_code=1)
     )
-    for _ in range(3):
-        await asyncio.sleep(0)
+
+    await asyncio.wait_for(first_chunk_done.wait(), timeout=2.0)
+    assert len(dispatched) == 2, (
+        f"expected 2 dispatches (TALKER_AR + CODE2WAV) before abort, got "
+        f"{len(dispatched)}"
+    )
+    assert {ts for _, ts in dispatched} == {TALKER_AR_STAGE, CODE2WAV_STAGE}
+
+    count_pre_abort = len(dispatched)
 
     await exe.abort(rid)
 
@@ -242,5 +257,95 @@ async def test_abort_stops_dispatch(
     except asyncio.TimeoutError:
         task.cancel()
         raise AssertionError("add_request did not return after abort")
+    except asyncio.CancelledError:
+        pass
 
+    assert len(dispatched) == count_pre_abort, (
+        f"post-abort dispatches leaked: {len(dispatched) - count_pre_abort} "
+        f"new entries after abort"
+    )
     assert all(r == rid for r, _ in dispatched)
+
+
+async def _drain_batch_loop(exe: _CodePredictorStreamingExecutor) -> None:
+    if exe._batch_loop_task is None:
+        return
+    exe._batch_loop_task.cancel()
+    try:
+        await exe._batch_loop_task
+    except asyncio.CancelledError:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_mixed_batch_live_plus_aborted(
+    tiny_wrapper: _CodePredictorWrapper,
+) -> None:
+    exe = _CodePredictorStreamingExecutor(
+        model=tiny_wrapper,
+        device="cpu",
+        max_batch_size=4,
+    )
+    try:
+        exe._ensure_batch_loop()
+        loop = asyncio.get_running_loop()
+        live = _PredictRequest(
+            request_id="live",
+            talker_hidden=torch.randn(_TINY_HIDDEN_SIZE),
+            layer0_code=torch.tensor(1, dtype=torch.long),
+            result_future=loop.create_future(),
+        )
+        dead = _PredictRequest(
+            request_id="dead",
+            talker_hidden=torch.randn(_TINY_HIDDEN_SIZE),
+            layer0_code=torch.tensor(2, dtype=torch.long),
+            result_future=loop.create_future(),
+        )
+        exe._aborted.add("dead")
+        exe._pending.put_nowait(live)
+        exe._pending.put_nowait(dead)
+
+        out = await asyncio.wait_for(live.result_future, timeout=5.0)
+        with pytest.raises(asyncio.CancelledError):
+            await dead.result_future
+
+        assert out["codes"].shape == (_TINY_NUM_CODE_GROUPS,)
+        assert out["summed_embeddings"].shape == (_TINY_HIDDEN_SIZE,)
+    finally:
+        await _drain_batch_loop(exe)
+
+
+@pytest.mark.asyncio
+async def test_abort_during_in_flight_forward(
+    tiny_wrapper: _CodePredictorWrapper,
+) -> None:
+    exe = _CodePredictorStreamingExecutor(
+        model=tiny_wrapper,
+        device="cpu",
+        max_batch_size=4,
+    )
+    stream_queue = _FakeStreamQueue()
+    exe._stream_queue = stream_queue
+
+    dispatched: list[tuple[str, Any]] = []
+
+    def capture(request_id: str, tensor: torch.Tensor, *, target_stage: str) -> None:
+        dispatched.append((request_id, target_stage))
+
+    exe.set_stream_fn(capture)
+
+    rid = "in-flight-abort"
+    stream_queue.open(rid)
+    payload = type("P", (), {"request_id": rid, "request": None, "data": None})()
+
+    exe._aborted.add(rid)
+    exe._dispatch_outputs(
+        rid,
+        {
+            "codes": torch.zeros(_TINY_NUM_CODE_GROUPS, dtype=torch.long),
+            "summed_embeddings": torch.zeros(_TINY_HIDDEN_SIZE),
+        },
+    )
+
+    assert dispatched == [], f"_dispatch_outputs leaked after abort: {dispatched}"
+    assert rid not in exe._aborted

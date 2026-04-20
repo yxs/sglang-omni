@@ -1,18 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Code2Wav executor with incremental waveform streaming.
-
-Supports opportunistic micro-batching: when multiple requests have pending
-vocoder decode work simultaneously, their windows are padded to a common
-length and forwarded in a single batched GPU call.  When only one request
-is active the fast-path runs exactly the same logic as before (no padding
-overhead).  See ``_batch_decode_loop`` for the scheduling strategy.
-"""
+"""Code2Wav executor — streaming vocoder with opportunistic micro-batching."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -25,17 +20,15 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_BATCH_SIZE: int = 16
 _DEFAULT_NUM_QUANTIZERS: int = 16  # Qwen3-Omni RVQ depth
-_DEFAULT_PAD_TOKEN_ID: int = 0     # any id in [0, codebook_size) works; 0 is always safe
+_DEFAULT_PAD_TOKEN_ID: int = 0  # any id in [0, codebook_size) works; 0 is always safe
 
 
 @dataclass
 class _DecodeRequest:
-    """A single vocoder decode request submitted by a per-request task."""
-
     request_id: str
     codes_window: torch.Tensor  # [num_quantizers, seq_len]
     trim_samples: int
-    result_future: asyncio.Future[np.ndarray] = field(default=None)  # type: ignore[assignment]
+    result_future: asyncio.Future[np.ndarray] | None = None
 
 
 def load_code2wav_model(
@@ -75,14 +68,7 @@ def load_code2wav_model(
 
 
 class _Code2WavStreamingExecutor(Executor):
-    """Decode codec chunks incrementally and emit audio stream chunks.
-
-    GPU work is scheduled through an opportunistic micro-batch loop rather
-    than a global ``asyncio.Lock``.  Per-request tasks submit
-    ``_DecodeRequest`` objects and ``await`` the attached Future; the batch
-    loop drains all pending requests, pads them to a common sequence length,
-    and runs a single batched ``self._model(codes)`` forward pass.
-    """
+    """Decode codec chunks incrementally and emit audio stream chunks."""
 
     def __init__(
         self,
@@ -103,9 +89,6 @@ class _Code2WavStreamingExecutor(Executor):
         self._stream_chunk_size = max(int(stream_chunk_size), 1)
         self._left_context_size = max(int(left_context_size), 0)
         self._sample_rate = sample_rate
-        # EOS sentinel identifies "end of upstream chunk stream"; it is NOT a
-        # valid code2wav embedding input.  Padding uses ``pad_token_id``
-        # (any id in the codebook) instead — see ``_forward_batch``.
         self._codec_eos_token_id = codec_eos_token_id
         self._pad_token_id = int(pad_token_id)
         self._total_upsample = int(getattr(model, "total_upsample", 1))
@@ -117,16 +100,17 @@ class _Code2WavStreamingExecutor(Executor):
         self._stream_queues: dict[str, asyncio.Queue[dict[str, Any] | None]] = {}
         self._aborted: set[str] = set()
 
-        # Micro-batch scheduling state (replaces the old _gpu_lock)
         self._pending: asyncio.Queue[_DecodeRequest] = asyncio.Queue()
         self._batch_loop_task: asyncio.Task[None] | None = None
+        self._forward_pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="code2wav-fwd",
+        )
+        self._output_len_by_seq: dict[int, int] = {}
+        self._output_len_offset: int | None = None
 
         if warmup:
             self.warmup()
-
-    # ------------------------------------------------------------------
-    # Executor interface
-    # ------------------------------------------------------------------
 
     async def add_request(self, payload: StagePayload) -> None:
         request_id = payload.request_id
@@ -162,6 +146,29 @@ class _Code2WavStreamingExecutor(Executor):
         if queue is not None:
             queue.put_nowait(None)
 
+    async def stop(self) -> None:
+        if self._batch_loop_task is not None and not self._batch_loop_task.done():
+            self._batch_loop_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._batch_loop_task
+        self._batch_loop_task = None
+
+        while not self._pending.empty():
+            try:
+                req = self._pending.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            fut = req.result_future
+            if fut is not None and not fut.done():
+                fut.cancel()
+
+        for task in list(self._tasks.values()):
+            if not task.done():
+                task.cancel()
+        self._tasks.clear()
+
+        self._forward_pool.shutdown(wait=False)
+
     async def stream(self, request_id: str):
         queue = self._stream_queues.get(request_id)
         if queue is None:
@@ -171,10 +178,6 @@ class _Code2WavStreamingExecutor(Executor):
             if item is None:
                 return
             yield item
-
-    # ------------------------------------------------------------------
-    # Per-request streaming loop (unchanged control flow)
-    # ------------------------------------------------------------------
 
     async def _run_request(self, payload: StagePayload) -> StagePayload:
         request_id = payload.request_id
@@ -204,7 +207,10 @@ class _Code2WavStreamingExecutor(Executor):
                     continue
 
                 audio = await self._submit_decode(
-                    request_id, code_chunks, emitted_positions, len(code_chunks),
+                    request_id,
+                    code_chunks,
+                    emitted_positions,
+                    len(code_chunks),
                 )
                 emitted_positions = len(code_chunks)
                 if audio.size == 0:
@@ -214,7 +220,10 @@ class _Code2WavStreamingExecutor(Executor):
 
             if code_chunks and emitted_positions < len(code_chunks):
                 audio = await self._submit_decode(
-                    request_id, code_chunks, emitted_positions, len(code_chunks),
+                    request_id,
+                    code_chunks,
+                    emitted_positions,
+                    len(code_chunks),
                 )
                 if audio.size > 0:
                     audio_chunks.append(audio)
@@ -232,24 +241,16 @@ class _Code2WavStreamingExecutor(Executor):
         finally:
             self._stream_queues.pop(request_id, None)
 
-    # ------------------------------------------------------------------
-    # Decode submission (replaces _decode_async + _gpu_lock)
-    # ------------------------------------------------------------------
-
     def _prepare_window(
         self,
         code_chunks: list[torch.Tensor],
         start_index: int,
         end_index: int,
     ) -> tuple[torch.Tensor, int]:
-        """Build the codes window tensor and compute trim length.
-
-        Returns:
-            (codes_window [Q, T], trim_samples)
-        """
         context_size = min(self._left_context_size, start_index)
         window = torch.stack(
-            code_chunks[start_index - context_size : end_index], dim=0,
+            code_chunks[start_index - context_size : end_index],
+            dim=0,
         )
         codes_window = window.transpose(0, 1)  # [Q, T]
         trim_samples = context_size * self._total_upsample
@@ -262,12 +263,13 @@ class _Code2WavStreamingExecutor(Executor):
         start_index: int,
         end_index: int,
     ) -> np.ndarray:
-        """Prepare the codes window and submit to the batch loop."""
         if start_index >= end_index:
             return np.zeros((0,), dtype=np.float32)
 
         codes_window, trim_samples = self._prepare_window(
-            code_chunks, start_index, end_index,
+            code_chunks,
+            start_index,
+            end_index,
         )
 
         if self._device.type == "cpu":
@@ -283,30 +285,13 @@ class _Code2WavStreamingExecutor(Executor):
         self._pending.put_nowait(req)
         return await req.result_future
 
-    # ------------------------------------------------------------------
-    # Opportunistic micro-batch loop
-    # ------------------------------------------------------------------
-
     def _ensure_batch_loop(self) -> None:
         if self._batch_loop_task is None or self._batch_loop_task.done():
             self._batch_loop_task = asyncio.create_task(self._batch_decode_loop())
 
     async def _batch_decode_loop(self) -> None:
-        """Drain pending decode requests and forward them in batches.
-
-        Strategy (opportunistic / scheme B):
-          1. Block until at least one request arrives.
-          2. Immediately drain everything else currently queued.
-          3. Forward the whole batch on GPU.
-          4. Dispatch per-request results back via Futures.
-          5. Repeat.
-
-        Single-request fast path avoids padding overhead entirely.
-
-        The outer loop catches non-cancellation exceptions so that a single
-        failed batch (e.g. CUDA OOM) does not kill the loop and deadlock
-        all subsequent callers waiting on their Futures.
-        """
+        # Swallow step-level exceptions so one failed batch (e.g. OOM) does
+        # not kill the loop and deadlock every other caller's Future.
         while True:
             try:
                 await self._batch_decode_step()
@@ -316,102 +301,135 @@ class _Code2WavStreamingExecutor(Executor):
                 logger.exception("batch decode loop iteration failed")
 
     async def _batch_decode_step(self) -> None:
-        """Execute one gather-and-forward cycle."""
         loop = asyncio.get_running_loop()
 
         first = await self._pending.get()
         batch: list[_DecodeRequest] = [first]
 
-        while (
-            not self._pending.empty()
-            and len(batch) < self._max_batch_size
-        ):
+        while not self._pending.empty() and len(batch) < self._max_batch_size:
             try:
                 batch.append(self._pending.get_nowait())
             except asyncio.QueueEmpty:
                 break
 
-        # Filter out aborted requests before touching GPU
-        live = [r for r in batch if r.request_id not in self._aborted]
-        aborted = [r for r in batch if r.request_id in self._aborted]
-        for r in aborted:
-            if not r.result_future.done():
-                r.result_future.cancel()
+        live: list[_DecodeRequest] = []
+        for r in batch:
+            if r.request_id in self._aborted:
+                fut = r.result_future
+                if fut is not None and not fut.done():
+                    fut.cancel()
+                self._aborted.discard(r.request_id)
+            else:
+                live.append(r)
         if not live:
             return
+
+        def _finalize(req: _DecodeRequest, audio: np.ndarray) -> None:
+            fut = req.result_future
+            if req.request_id in self._aborted:
+                if fut is not None and not fut.done():
+                    fut.cancel()
+                self._aborted.discard(req.request_id)
+                return
+            if fut is not None and not fut.done():
+                fut.set_result(audio)
 
         try:
             if len(live) == 1:
                 r = live[0]
                 audio = await loop.run_in_executor(
-                    None, self._vocoder_forward,
-                    r.codes_window, r.trim_samples,
+                    self._forward_pool,
+                    self._vocoder_forward,
+                    r.codes_window,
+                    r.trim_samples,
                 )
-                # NOTE: set_result must be called from the event loop thread.
-                # _vocoder_forward runs in a thread pool, so we return the
-                # result here rather than setting it inside the worker.
-                if not r.result_future.done():
-                    r.result_future.set_result(audio)
+                _finalize(r, audio)
             else:
                 audios = await loop.run_in_executor(
-                    None, self._forward_batch, live,
+                    self._forward_pool,
+                    self._forward_batch,
+                    live,
                 )
                 for req, audio in zip(live, audios):
-                    if not req.result_future.done():
-                        req.result_future.set_result(audio)
+                    _finalize(req, audio)
         except Exception as exc:
             for req in live:
-                if not req.result_future.done():
-                    req.result_future.set_exception(exc)
+                fut = req.result_future
+                if fut is not None and not fut.done():
+                    fut.set_exception(exc)
             raise
-
-    # ------------------------------------------------------------------
-    # MIOpen / cuDNN kernel warmup
-    # ------------------------------------------------------------------
 
     @torch.no_grad()
     def warmup(self) -> None:
-        """Prime MIOpen / cuDNN kernel caches for all expected batch sizes.
-
-        On ROCm, MIOpen JIT-compiles a conv solver the first time it sees
-        a new ``(batch, channels, seq_len)`` shape — this can take several
-        seconds per shape and would otherwise be paid on the first real
-        request at each batch size.  We pay it once at construction time
-        by running a dummy forward at every batch size the micro-batch
-        scheduler can actually produce: 1 (fast path), small powers of
-        two, and ``max_batch_size``.  ``torch.cuda.synchronize`` ensures
-        the compilation is complete before we return.  No-op on CPU.
-        """
+        """Prime conv kernel caches + record actual output length per seq_len."""
         if self._device.type != "cuda":
             return
-        sizes = sorted({
-            b for b in {1, 2, 4, 8, self._max_batch_size}
-            if 1 <= b <= self._max_batch_size
-        })
+
+        warmup_lens: set[int] = set()
+        warmup_lens.add(self._stream_chunk_size)
+        warmup_lens.add(self._stream_chunk_size + self._left_context_size)
+        if self._left_context_size > 0:
+            step = max(1, self._left_context_size // 4)
+            for ctx in range(step, self._left_context_size, step):
+                warmup_lens.add(self._stream_chunk_size + ctx)
+        for flush_len in (1, self._stream_chunk_size // 2):
+            if flush_len >= 1:
+                warmup_lens.add(flush_len)
+
+        sizes = sorted(
+            {
+                b
+                for b in {1, 2, 4, 8, self._max_batch_size}
+                if 1 <= b <= self._max_batch_size
+            }
+        )
+        ordered_lens = sorted(warmup_lens)
         logger.info(
-            "Code2Wav MIOpen warmup: priming batch sizes %s on %s "
-            "(may take several seconds on ROCm)",
-            sizes, self._device,
+            "Code2Wav warmup: priming %d (batch_size, seq_len) pairs "
+            "on %s (sizes=%s, seq_lens=%s)",
+            len(sizes) * len(ordered_lens),
+            self._device,
+            sizes,
+            ordered_lens,
         )
         torch.cuda.set_device(self._device)
         start = time.perf_counter()
-        for b in sizes:
-            dummy = torch.full(
-                (b, self._num_quantizers, self._stream_chunk_size),
-                fill_value=self._pad_token_id,
-                dtype=torch.long,
-                device=self._device,
-            )
-            _ = self._model(dummy)
+        for seq_len in ordered_lens:
+            for b in sizes:
+                dummy = torch.full(
+                    (b, self._num_quantizers, seq_len),
+                    fill_value=self._pad_token_id,
+                    dtype=torch.long,
+                    device=self._device,
+                )
+                out = self._model(dummy)
+                actual = int(out.shape[-1])
+                prev = self._output_len_by_seq.get(seq_len)
+                if prev is not None and prev != actual:
+                    logger.warning(
+                        "Code2Wav output length non-deterministic for "
+                        "seq_len=%d: prev=%d vs now=%d",
+                        seq_len,
+                        prev,
+                        actual,
+                    )
+                self._output_len_by_seq[seq_len] = actual
+                if self._output_len_offset is None:
+                    self._output_len_offset = seq_len * self._total_upsample - actual
         torch.cuda.synchronize(self._device)
         logger.info(
-            "Code2Wav MIOpen warmup complete in %.2fs (batch sizes %s)",
-            time.perf_counter() - start, sizes,
+            "Code2Wav warmup complete in %.2fs; output_len_offset=%s",
+            time.perf_counter() - start,
+            self._output_len_offset,
         )
 
-    # ------------------------------------------------------------------
-    # GPU forward paths (run in thread pool)
-    # ------------------------------------------------------------------
+    def _compute_valid_samples(self, seq_len: int) -> int:
+        cached = self._output_len_by_seq.get(seq_len)
+        if cached is not None:
+            return cached
+        if self._output_len_offset is not None:
+            return seq_len * self._total_upsample - self._output_len_offset
+        return seq_len * self._total_upsample
 
     @torch.no_grad()
     def _vocoder_forward(
@@ -419,12 +437,6 @@ class _Code2WavStreamingExecutor(Executor):
         codes_window: torch.Tensor,
         trim_samples: int,
     ) -> np.ndarray:
-        """Run the vocoder on a single ``[Q, T]`` codes window.
-
-        Used by the single-request fast path and the CPU fallback.
-        The batched path uses ``_forward_batch`` which inlines similar
-        trimming logic per-request on the batched output.
-        """
         if self._device.type == "cuda":
             torch.cuda.set_device(self._device)
         codes = codes_window.unsqueeze(0)  # [1, Q, T]
@@ -435,26 +447,19 @@ class _Code2WavStreamingExecutor(Executor):
 
     @torch.no_grad()
     def _forward_batch(
-        self, batch: list[_DecodeRequest],
+        self,
+        batch: list[_DecodeRequest],
     ) -> list[np.ndarray]:
-        """Batch path: pad to common length, forward once, split results."""
         if self._device.type == "cuda":
             torch.cuda.set_device(self._device)
 
         max_len = max(r.codes_window.shape[1] for r in batch)
         num_q = batch[0].codes_window.shape[0]
 
-        # Pad with ``pad_token_id`` which MUST be a valid codebook id
-        # (0 <= id < codebook_size).  The code2wav model maps codes via
-        # ``code_embedding(codes + code_offset)`` where ``code_offset``
-        # is per-layer; an out-of-range code produces an OOB embedding
-        # lookup and a CUDA illegal access.  ``codec_eos_token_id`` is
-        # reserved for upstream EOS signalling and is NOT guaranteed to
-        # be inside the codebook (Qwen3-Omni uses 2150 > codebook_size
-        # 2048), so it must not be used here.  The padded positions are
-        # sliced away from the output before it is returned, so any
-        # residual boundary leakage is limited to the conv receptive
-        # field around the valid/pad boundary.
+        # ``pad_token_id`` must be inside ``[0, codebook_size)``; the model
+        # embeds codes via ``code_embedding(codes + code_offset)`` and OOB
+        # ids trigger a CUDA illegal access (``codec_eos_token_id=2150``
+        # exceeds Qwen3-Omni's 2048 codebook, so it cannot be used here).
         padded = torch.full(
             (len(batch), num_q, max_len),
             fill_value=self._pad_token_id,
@@ -470,9 +475,10 @@ class _Code2WavStreamingExecutor(Executor):
         results: list[np.ndarray] = []
         for i, req in enumerate(batch):
             wav = wav_batch[i]
-            valid_samples = req.codes_window.shape[1] * self._total_upsample
+            seq_len = req.codes_window.shape[1]
+            valid_samples = self._compute_valid_samples(seq_len)
             if req.trim_samples:
-                wav = wav[..., req.trim_samples:valid_samples]
+                wav = wav[..., req.trim_samples : valid_samples]
             else:
                 wav = wav[..., :valid_samples]
             results.append(wav.reshape(-1).detach().cpu().float().numpy().copy())
@@ -514,6 +520,40 @@ def create_code2wav_executor(
         left_context_size=left_context_size,
         max_batch_size=max_batch_size,
         num_quantizers=num_quantizers,
+        pad_token_id=pad_token_id,
+        warmup=warmup,
+    )
+
+
+def create_code2wav_executor_from_config(
+    model_path: str,
+    *,
+    gpu_id: int = 0,
+    server_args_overrides: dict[str, Any] | None = None,
+    dtype: str | None = None,
+) -> Executor:
+    """Factory mirroring ``create_code_predictor_executor_from_config``.
+
+    Recognised ``server_args_overrides`` keys (all optional):
+    ``code2wav_max_batch_size``, ``code2wav_warmup``,
+    ``code2wav_stream_chunk_size``, ``code2wav_left_context_size``,
+    ``code2wav_pad_token_id``.
+    """
+    overrides = dict(server_args_overrides or {})
+    max_batch_size = int(
+        overrides.pop("code2wav_max_batch_size", _DEFAULT_MAX_BATCH_SIZE)
+    )
+    warmup = bool(overrides.pop("code2wav_warmup", True))
+    stream_chunk_size = int(overrides.pop("code2wav_stream_chunk_size", 10))
+    left_context_size = int(overrides.pop("code2wav_left_context_size", 25))
+    pad_token_id = int(overrides.pop("code2wav_pad_token_id", _DEFAULT_PAD_TOKEN_ID))
+    return create_code2wav_executor(
+        model_path=model_path,
+        gpu_id=gpu_id,
+        dtype=dtype,
+        max_batch_size=max_batch_size,
+        stream_chunk_size=stream_chunk_size,
+        left_context_size=left_context_size,
         pad_token_id=pad_token_id,
         warmup=warmup,
     )

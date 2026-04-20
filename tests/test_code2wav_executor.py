@@ -1,26 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for the code2wav executor's micro-batch scheduler.
-
-These tests use a small deterministic mock vocoder so they run on CPU
-without any model weights.  The mock satisfies the contract required
-by ``_Code2WavStreamingExecutor``:
-
-* ``total_upsample`` attribute.
-* Forward on ``codes [B, Q, T]`` returns ``wav [B, 1, T * U]``.
-
-We verify three things:
-
-1. ``_vocoder_forward`` produces the expected waveform for a single
-   ``[Q, T]`` window (shape, values, trim honoured).
-2. ``_forward_batch`` returns per-request audio identical to running
-   each request through ``_vocoder_forward`` individually — padding
-   must not leak into the valid region for a mock whose output at
-   position t only depends on ``codes[:, :, t]``.
-3. The async ``_batch_decode_step`` path dispatches results through
-   the attached ``asyncio.Future`` correctly: a lone request takes the
-   fast path; multiple requests are batched; aborted requests are
-   cancelled without triggering a forward.
-"""
+"""Unit tests for ``_Code2WavStreamingExecutor`` (mock vocoder, CPU)."""
 from __future__ import annotations
 
 import asyncio
@@ -37,19 +16,6 @@ from sglang_omni.models.qwen3_omni.components.code2wav_executor import (
 
 
 class _MockVocoder(nn.Module):
-    """Deterministic mock vocoder with per-position output.
-
-    Mirrors two salient properties of the real Qwen3OmniMoeCode2Wav:
-
-    1. It starts with an ``nn.Embedding`` lookup, so any code id
-       outside ``[0, codebook_size)`` triggers a runtime error exactly
-       like the real model.  This is how we catch pad-value OOB bugs.
-    2. Output at sample ``t * U + u`` depends only on the codes at
-       position ``t``, so padding positions cannot contaminate valid
-       samples.  Lets us assert exact equality between the batched and
-       single-request code paths.
-    """
-
     def __init__(
         self,
         upsample: int = 4,
@@ -59,28 +25,35 @@ class _MockVocoder(nn.Module):
         super().__init__()
         self.total_upsample = int(upsample)
         self._codebook_size = int(codebook_size)
-        # Use a real embedding so OOB ids throw like the real model.
         self._embed = nn.Embedding(codebook_size, hidden_size)
-        # Deterministic, nonzero weights so the test values are stable.
         with torch.no_grad():
             torch.manual_seed(0)
-            self._embed.weight.copy_(torch.arange(
-                codebook_size * hidden_size, dtype=torch.float32,
-            ).reshape(codebook_size, hidden_size) * 0.001)
+            self._embed.weight.copy_(
+                torch.arange(
+                    codebook_size * hidden_size,
+                    dtype=torch.float32,
+                ).reshape(codebook_size, hidden_size)
+                * 0.001
+            )
 
     def forward(self, codes: torch.Tensor) -> torch.Tensor:
         assert codes.dim() == 3, "expect [B, Q, T]"
-        # Will raise IndexError if any code id is outside [0, codebook_size).
-        embedded = self._embed(codes)                                  # [B, Q, T, H]
-        per_position = embedded.sum(dim=(1, 3))                        # [B, T]
+        embedded = self._embed(codes)
+        per_position = embedded.sum(dim=(1, 3))
         _, _, T = codes.shape
         upsampled = per_position.repeat_interleave(
-            self.total_upsample, dim=1,
-        )                                                              # [B, T*U]
-        offset = torch.arange(
-            T * self.total_upsample, device=codes.device, dtype=torch.float32,
-        ) * 0.001
-        return (upsampled + offset).unsqueeze(1)                       # [B, 1, T*U]
+            self.total_upsample,
+            dim=1,
+        )
+        offset = (
+            torch.arange(
+                T * self.total_upsample,
+                device=codes.device,
+                dtype=torch.float32,
+            )
+            * 0.001
+        )
+        return (upsampled + offset).unsqueeze(1)
 
 
 def _make_executor(
@@ -100,18 +73,12 @@ def _make_executor(
     )
 
 
-# ----------------------------------------------------------------------
-# Synchronous forward-path tests
-# ----------------------------------------------------------------------
-
-
 def test_vocoder_forward_produces_expected_shape() -> None:
     exe = _make_executor(upsample=4)
-    codes = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.long)  # Q=2, T=3
+    codes = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.long)
 
     wav = exe._vocoder_forward(codes, trim_samples=0)
 
-    # Output is [T * upsample] after flatten + no trim.
     assert wav.shape == (3 * 4,)
     assert np.all(np.isfinite(wav))
 
@@ -123,24 +90,12 @@ def test_vocoder_forward_honours_trim_samples() -> None:
     wav_full = exe._vocoder_forward(codes, trim_samples=0)
     wav_trimmed = exe._vocoder_forward(codes, trim_samples=4)
 
-    # Trimming removes exactly ``trim_samples`` leading samples; the
-    # remaining audio is bit-identical to the tail of the full output.
     assert wav_trimmed.shape == (wav_full.shape[0] - 4,)
     np.testing.assert_allclose(wav_trimmed, wav_full[4:], rtol=1e-5)
 
 
 def test_forward_batch_rejects_out_of_range_pad_token_id() -> None:
-    """Pad value must be inside [0, codebook_size); OOB raises at lookup time.
-
-    Regression test for the pre-fix bug where ``codec_eos_token_id=2150``
-    was used as the pad value while the mock/real codebook is only 2048
-    wide, producing a CUDA illegal memory access on variable-length
-    batches.
-    """
     exe = _make_executor()
-    # Explicitly overwrite pad_token_id with an OOB value (simulating the
-    # old behaviour) and build a variable-length batch so pad positions
-    # actually get populated.
     exe._pad_token_id = exe._model._codebook_size + 10
     requests = [
         _DecodeRequest(
@@ -157,19 +112,13 @@ def test_forward_batch_rejects_out_of_range_pad_token_id() -> None:
     with pytest.raises(IndexError):
         exe._forward_batch(requests)
 
-    # Resetting to the default (0) restores success.
     exe._pad_token_id = 0
     outputs = exe._forward_batch(requests)
     assert len(outputs) == 2
 
 
 def test_forward_batch_matches_independent_single_forwards() -> None:
-    """Batched path must produce identical per-request audio as single path."""
     exe = _make_executor(upsample=4)
-    # Three requests with different lengths AND different trims.
-    #   - req0: Q=1, T=3, no context
-    #   - req1: Q=1, T=5, 1 position of context (trim 4 samples)
-    #   - req2: Q=1, T=2, no context
     codes_list = [
         torch.tensor([[1, 2, 3]], dtype=torch.long),
         torch.tensor([[4, 5, 6, 7, 8]], dtype=torch.long),
@@ -191,18 +140,15 @@ def test_forward_batch_matches_independent_single_forwards() -> None:
     assert len(batch_outputs) == 3
     for i, (codes, trim) in enumerate(zip(codes_list, trims)):
         single = exe._vocoder_forward(codes, trim_samples=trim)
-        assert batch_outputs[i].shape == single.shape, (
-            f"req{i}: batch shape {batch_outputs[i].shape} != single {single.shape}"
-        )
+        assert (
+            batch_outputs[i].shape == single.shape
+        ), f"req{i}: batch shape {batch_outputs[i].shape} != single {single.shape}"
         np.testing.assert_allclose(
-            batch_outputs[i], single, rtol=1e-5,
+            batch_outputs[i],
+            single,
+            rtol=1e-5,
             err_msg=f"req{i}: batched output diverges from single-path output",
         )
-
-
-# ----------------------------------------------------------------------
-# Async scheduling path tests
-# ----------------------------------------------------------------------
 
 
 async def _shutdown_batch_loop(exe: _Code2WavStreamingExecutor) -> None:
@@ -258,8 +204,6 @@ async def test_multiple_pending_requests_are_batched() -> None:
             )
             for i, c in enumerate(codes_list)
         ]
-        # Enqueue all three with no await in between so the batch loop
-        # sees them in a single drain.
         for r in reqs:
             exe._pending.put_nowait(r)
 
@@ -269,7 +213,9 @@ async def test_multiple_pending_requests_are_batched() -> None:
         for i, (got, codes) in enumerate(zip(results, codes_list)):
             expected = exe._vocoder_forward(codes, trim_samples=0)
             np.testing.assert_allclose(
-                got, expected, rtol=1e-5,
+                got,
+                expected,
+                rtol=1e-5,
                 err_msg=f"req{i}: batched dispatch diverges from single-path",
             )
     finally:
@@ -300,7 +246,6 @@ async def test_aborted_request_is_cancelled() -> None:
 
 @pytest.mark.asyncio
 async def test_mixed_batch_live_plus_aborted() -> None:
-    """A live request in the same batch as an aborted one should still succeed."""
     exe = _make_executor()
     exe._ensure_batch_loop()
     try:
