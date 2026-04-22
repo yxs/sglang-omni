@@ -12,6 +12,13 @@ concurrency:
 permissions:
   contents: read
 
+# DAG:
+#   docs ──► stage-1-thinker ──► stage-2-tts
+#                              ├─► stage-3-mmmu
+#                              ├─► stage-4-mmmu-tts-consistency
+#                              ├─► stage-5-mmsu
+#                              └─► stage-6-mmsu-tts-consistency
+
 jobs:
   docs:
     name: docs
@@ -38,11 +45,11 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
 
-      - name: Kill GPU processes
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: docs
 
       - name: Save cache
         if: always()
@@ -55,9 +62,40 @@ jobs:
             echo "::warning::Skipping cache save — venv appears corrupted (torch not importable)"
           fi
 
-  stage-1-tts:
-    name: stage 1 - TTS speed + WER
+  stage-1-thinker:
+    name: stage 1 - thinker length integration
     needs: docs
+    runs-on: [self-hosted]
+    timeout-minutes: 20
+    container:
+      image: frankleeeee/sglang-omni:dev
+      options: --gpus all --rm -v /dev/shm:/dev/shm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/omni-setup
+        with:
+          venv-name: omni-qwen3
+
+      - name: Run thinker length integration test
+        shell: bash
+        run: |
+          source omni-qwen3/bin/activate
+          export PYTHONPATH=$PWD
+          pytest tests/test_model/test_qwen3_omni_thinker_length.py -v -s -x
+        env:
+          HF_ENDPOINT: https://hf-mirror.com
+
+      - name: Post-stage cleanup
+        if: always()
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: thinker-length
+
+  stage-2-tts:
+    name: stage 2 - TTS speed + WER
+    needs: [docs, stage-1-thinker]
     runs-on: [self-hosted]
     timeout-minutes: 15
     container:
@@ -81,26 +119,20 @@ jobs:
           HF_ENDPOINT: https://hf-mirror.com
           SGLANG_SEEDTTS_MINI_DIR: /github/home/seedtts-mini
 
-      - name: Print TTS CI artifacts (speed + WER)
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== Qwen3-Omni TTS CI results ==="
-          for f in $(find /tmp -name "speed_results.json" -o -name "wer_results.json" 2>/dev/null); do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: TTS (speed + WER)
+          artifact-path-globs: |
+            */speed_results.json
+            */wer_results.json
+          artifact-upload-name: qwen3-omni-tts-results
+          artifact-upload-path: /tmp/**/*_results.json
 
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
-
-  stage-2-mmmu:
-    name: stage 2 - MMMU accuracy + speed
-    needs: stage-1-tts
+  stage-3-mmmu:
+    name: stage 3 - MMMU accuracy + speed
+    needs: [docs, stage-1-thinker]
     runs-on: [self-hosted]
     timeout-minutes: 20
     container:
@@ -123,26 +155,19 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
 
-      - name: Print MMMU CI artifacts (accuracy + speed)
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== Qwen3-Omni MMMU CI results ==="
-          for f in $(find /tmp -path '*/mmmu/mmmu_results.json' 2>/dev/null); do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: MMMU (accuracy + speed)
+          artifact-path-globs: |
+            */mmmu/mmmu_results.json
+          artifact-upload-name: qwen3-omni-mmmu-results
+          artifact-upload-path: /tmp/**/mmmu_results.json
 
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
-
-  stage-3-mmmu-tts-consistency:
-    name: stage 3 - MMMU TTS consistency
-    needs: stage-2-mmmu
+  stage-4-mmmu-tts-consistency:
+    name: stage 4 - MMMU TTS consistency
+    needs: [docs, stage-1-thinker]
     runs-on: [self-hosted]
     timeout-minutes: 15
     container:
@@ -165,26 +190,19 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
 
-      - name: Print MMMU TTS Consistency CI artifacts (WER + speed)
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== Qwen3-Omni MMMU TTS Consistency CI results ==="
-          for f in $(find /tmp -path '*/mmmu_audio/mmmu_results.json' 2>/dev/null); do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: MMMU TTS Consistency (WER + speed)
+          artifact-path-globs: |
+            */mmmu_audio/mmmu_results.json
+          artifact-upload-name: qwen3-omni-mmmu-tts-consistency-results
+          artifact-upload-path: /tmp/**/mmmu_audio/mmmu_results.json
 
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
-
-  stage-4-mmsu:
-    name: stage 4 - MMSU accuracy + speed
-    needs: stage-3-mmmu-tts-consistency
+  stage-5-mmsu:
+    name: stage 5 - MMSU accuracy + speed
+    needs: [docs, stage-1-thinker]
     runs-on: [self-hosted]
     timeout-minutes: 20
     container:
@@ -207,27 +225,20 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
 
-      - name: Print MMSU CI artifacts (accuracy + speed)
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          source omni-qwen3/bin/activate
-          echo "=== Qwen3-Omni MMSU CI results (summary only) ==="
-          for f in $(find /tmp -path '*/mmsu/mmsu_results.json' 2>/dev/null); do
-            echo "--- $f ---"
-            python -c "import json,sys; d=json.load(open(sys.argv[1])); d.pop('per_sample',None); print(json.dumps(d, indent=2, ensure_ascii=False))" "$f"
-            echo ""
-          done
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: MMSU (accuracy + speed, summary only)
+          artifact-path-globs: |
+            */mmsu/mmsu_results.json
+          artifact-upload-name: qwen3-omni-mmsu-results
+          artifact-upload-path: /tmp/**/mmsu/mmsu_results.json
+          summary-only: "true"
 
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
-
-  stage-5-mmsu-tts-consistency:
-    name: stage 5 - MMSU TTS consistency
-    needs: stage-4-mmsu
+  stage-6-mmsu-tts-consistency:
+    name: stage 6 - MMSU TTS consistency
+    needs: [docs, stage-1-thinker]
     runs-on: [self-hosted]
     timeout-minutes: 15
     container:
@@ -250,19 +261,12 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
 
-      - name: Print MMSU TTS Consistency CI artifacts (WER + speed)
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== Qwen3-Omni MMSU TTS Consistency CI results ==="
-          for f in $(find /tmp -path '*/mmsu_audio/mmsu_results.json' 2>/dev/null); do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
-
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: MMSU TTS Consistency (WER + speed)
+          artifact-path-globs: |
+            */mmsu_audio/mmsu_results.json
+          artifact-upload-name: qwen3-omni-mmsu-tts-consistency-results
+          artifact-upload-path: /tmp/**/mmsu_audio/mmsu_results.json

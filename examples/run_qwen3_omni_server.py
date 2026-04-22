@@ -87,6 +87,8 @@ def main() -> None:
     args = parse_args()
 
     overrides = {}
+    if args.thinker_max_seq_len is not None:
+        overrides["thinker_max_seq_len"] = args.thinker_max_seq_len
     if args.cpu_offload_gb:
         overrides["cpu_offload_gb"] = args.cpu_offload_gb
 
@@ -105,12 +107,6 @@ def main() -> None:
             stage_name="thinker",
             overrides={"mem_fraction_static": args.mem_fraction_static},
         )
-
-    # Override thinker_max_seq_len in stage executor args if provided
-    if args.thinker_max_seq_len is not None:
-        for stage in config.stages:
-            if stage.name == "thinker":
-                stage.executor.args["thinker_max_seq_len"] = args.thinker_max_seq_len
 
     launch_server(
         config,

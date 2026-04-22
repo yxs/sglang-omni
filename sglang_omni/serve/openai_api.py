@@ -52,6 +52,21 @@ from sglang_omni.serve.protocol import (
 
 logger = logging.getLogger(__name__)
 MIME_TO_FORMAT = {mime: fmt for fmt, mime in FORMAT_MIME_TYPES.items()}
+_BAD_REQUEST_MARKERS = (
+    "longer than the model's context length",
+    "Requested token count exceeds the model's maximum context length",
+)
+
+
+def _is_bad_request_error(exc: Exception) -> bool:
+    # TODO (Qiujiang): replace with structured error code.
+    # Worker → coordinator currently serializes exceptions to str, so
+    # 400 vs 500 must be recovered via phrase match. See Ccyest's proposal
+    # on #330 for the end-to-end design (CompleteMessage.error_code).
+    # These markers must stay in sync with SGLang's ValueError wording:
+    #   - managers/tokenizer_manager.py:761, 791
+    message = str(exc)
+    return any(marker in message for marker in _BAD_REQUEST_MARKERS)
 
 
 def create_app(
@@ -147,6 +162,7 @@ def _register_chat_completions(app: FastAPI) -> None:
             audio_format = req.audio.get("format", "wav")
 
         if req.stream:
+            # TODO (Qiujiang): Align streaming bad-request behavior with upstream SGLang.
             return StreamingResponse(
                 _chat_stream(
                     client,
@@ -190,6 +206,10 @@ async def _chat_non_stream(
             request_id=request_id,
             audio_format=audio_format,
         )
+    except RuntimeError as exc:
+        if _is_bad_request_error(exc):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except ClientError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:

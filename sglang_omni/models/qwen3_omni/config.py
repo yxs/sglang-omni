@@ -113,10 +113,28 @@ class Qwen3OmniPipelineConfig(PipelineConfig):
             and overrides["tp_size"] > 1
         ):
             raise NotImplementedError("Qwen3-Omni TP is not supported yet.")
-        super().apply_server_args_overrides(
-            stage_name=stage_name,
-            overrides=overrides,
-        )
+        remaining = _route_thinker_max_seq_len(self.stages, stage_name, overrides)
+        if remaining:
+            super().apply_server_args_overrides(
+                stage_name=stage_name,
+                overrides=remaining,
+            )
+
+
+def _route_thinker_max_seq_len(
+    stages: list[StageConfig],
+    stage_name: str,
+    overrides: dict[str, Any],
+) -> dict[str, Any]:
+    remaining = dict(overrides)
+    thinker_max_seq_len = remaining.pop("thinker_max_seq_len", None)
+    if thinker_max_seq_len is None or stage_name != THINKER_STAGE:
+        return remaining
+    for stage in stages:
+        if stage.name == THINKER_STAGE:
+            stage.executor.args["thinker_max_seq_len"] = int(thinker_max_seq_len)
+            break
+    return remaining
 
 
 def _validate_qwen3_speech_gpu_placement(
@@ -284,10 +302,12 @@ class Qwen3OmniSpeechPipelineConfig(PipelineConfig):
             )
             if tp_size > 1:
                 raise NotImplementedError("Qwen3-Omni TP is not supported yet.")
-        super().apply_server_args_overrides(
-            stage_name=stage_name,
-            overrides=overrides,
-        )
+        remaining = _route_thinker_max_seq_len(self.stages, stage_name, overrides)
+        if remaining:
+            super().apply_server_args_overrides(
+                stage_name=stage_name,
+                overrides=remaining,
+            )
 
 
 EntryClass = Qwen3OmniSpeechPipelineConfig

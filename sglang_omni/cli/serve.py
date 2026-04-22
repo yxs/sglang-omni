@@ -9,6 +9,8 @@ import yaml
 from sglang_omni.config.manager import ConfigManager
 from sglang_omni.serve.launcher import launch_server
 
+_THINKER_STAGE_NAME = "thinker"
+
 
 def serve(
     ctx: typer.Context,
@@ -64,6 +66,13 @@ def serve(
                 "stage. Overrides --mem-fraction-static for talker. Some "
                 "pipelines do not expose a talker AR stage."
             )
+        ),
+    ] = None,
+    thinker_max_seq_len: Annotated[
+        int | None,
+        typer.Option(
+            "--thinker-max-seq-len",
+            help="Override thinker max sequence length for Qwen3-style pipelines.",
         ),
     ] = None,
     log_level: Annotated[
@@ -129,6 +138,21 @@ def serve(
                 stage_name=stage_name,
                 overrides={"mem_fraction_static": final_mem_fraction_static},
             )
+
+    if thinker_max_seq_len is not None:
+        if thinker_max_seq_len <= 0:
+            raise typer.BadParameter(
+                "--thinker-max-seq-len must be a positive integer."
+            )
+        if _THINKER_STAGE_NAME not in {stage.name for stage in merged_config.stages}:
+            raise typer.BadParameter(
+                "--thinker-max-seq-len is not supported by pipeline "
+                f"{type(merged_config).__name__}."
+            )
+        merged_config.apply_server_args_overrides(
+            stage_name=_THINKER_STAGE_NAME,
+            overrides={"thinker_max_seq_len": int(thinker_max_seq_len)},
+        )
 
     # print merged configuration
     print("=" * 20, "Merged Configuration", "=" * 20)

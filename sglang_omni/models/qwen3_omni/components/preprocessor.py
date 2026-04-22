@@ -133,7 +133,8 @@ class Qwen3OmniPreprocessor:
             raw_videos = inputs.get("videos") or inputs.get("video")
             raw_audios = inputs.get("audio") or inputs.get("audios")
             audio_target_sr = int(inputs.get("audio_target_sr", 16000))
-            video_fps = inputs.get("video_fps")
+            # TODO (Qiujiang): route video_fps through the unified runtime parameter path.
+            video_fps = inputs.get("video_fps", 1.0)
             use_audio_in_video = inputs.get("use_audio_in_video")
             video_seconds_per_chunk = inputs.get("video_seconds_per_chunk")
             video_position_id_per_seconds = inputs.get("video_position_id_per_seconds")

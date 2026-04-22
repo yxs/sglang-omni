@@ -12,6 +12,11 @@ concurrency:
 permissions:
   contents: read
 
+# DAG:
+#   docs ──► stage-1-non-streaming ──┐
+#        └─► stage-2-streaming ──────┤
+#                                    └──► stage-3-consistency
+
 jobs:
   docs:
     name: docs
@@ -38,17 +43,22 @@ jobs:
         env:
           HF_ENDPOINT: https://hf-mirror.com
 
-      - name: Kill GPU processes
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: S2-Pro docs
 
       - name: Save cache
         if: always()
+        shell: bash
         run: |
-          rm -rf /github/home/omni-s2pro
-          cp -p -r omni-s2pro /github/home/
+          if omni-s2pro/bin/python -c "import torch" 2>/dev/null; then
+            rm -rf /github/home/omni-s2pro
+            cp -p -r omni-s2pro /github/home/
+          else
+            echo "::warning::Skipping cache save — venv appears corrupted (torch not importable)"
+          fi
 
   stage-1-non-streaming:
     name: stage 1 - non-streaming
@@ -77,33 +87,22 @@ jobs:
           SGLANG_SEEDTTS50_DIR: /github/home/seedtts-50
           S2PRO_STAGE_OUTPUT_ROOT: ${{ github.workspace }}/stage-results/nonstream
 
-      - name: Print benchmark artifacts
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== stage 1 - non-streaming results ==="
-          find stage-results/nonstream -name "speed_results.json" -o -name "wer_results.json" 2>/dev/null | sort | while read -r f; do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
-
-      - name: Upload stage artifact
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/omni-post-stage
         with:
-          name: s2pro-stage-1-results
-          path: stage-results/nonstream
-          if-no-files-found: error
-
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
+          stage-label: S2-Pro stage 1 (non-streaming)
+          artifact-search-root: stage-results/nonstream
+          artifact-path-globs: |
+            */speed_results.json
+            */wer_results.json
+          artifact-upload-name: s2pro-stage-1-results
+          artifact-upload-path: stage-results/nonstream
+          artifact-if-no-files-found: error
 
   stage-2-streaming:
     name: stage 2 - streaming
-    needs: stage-1-non-streaming
+    needs: docs
     runs-on: [self-hosted]
     timeout-minutes: 5
     container:
@@ -128,33 +127,22 @@ jobs:
           SGLANG_SEEDTTS50_DIR: /github/home/seedtts-50
           S2PRO_STAGE_OUTPUT_ROOT: ${{ github.workspace }}/stage-results/stream
 
-      - name: Print benchmark artifacts
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== stage 2 - streaming results ==="
-          find stage-results/stream -name "speed_results.json" -o -name "wer_results.json" 2>/dev/null | sort | while read -r f; do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
-
-      - name: Upload stage artifact
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/omni-post-stage
         with:
-          name: s2pro-stage-2-results
-          path: stage-results/stream
-          if-no-files-found: error
-
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
+          stage-label: S2-Pro stage 2 (streaming)
+          artifact-search-root: stage-results/stream
+          artifact-path-globs: |
+            */speed_results.json
+            */wer_results.json
+          artifact-upload-name: s2pro-stage-2-results
+          artifact-upload-path: stage-results/stream
+          artifact-if-no-files-found: error
 
   stage-3-consistency:
     name: stage 3 - consistency
-    needs: stage-2-streaming
+    needs: [stage-1-non-streaming, stage-2-streaming]
     runs-on: [self-hosted]
     timeout-minutes: 5
     container:
@@ -192,19 +180,12 @@ jobs:
           S2PRO_STAGE1_SPEED_RESULTS_DIR: ${{ github.workspace }}/stage-artifacts/nonstream
           S2PRO_STAGE2_SPEED_RESULTS_DIR: ${{ github.workspace }}/stage-artifacts/stream
 
-      - name: Print benchmark artifacts
+      - name: Post-stage cleanup
         if: always()
-        shell: bash
-        run: |
-          echo "=== stage 3 - consistency inputs ==="
-          find stage-artifacts -name "speed_results.json" -o -name "wer_results.json" 2>/dev/null | sort | while read -r f; do
-            echo "--- $f ---"
-            cat "$f"
-            echo ""
-          done
-
-      - name: Kill GPU processes
-        if: always()
-        shell: bash
-        run: |
-          bash .github/scripts/delete_gpu_process.sh
+        uses: ./.github/actions/omni-post-stage
+        with:
+          stage-label: S2-Pro stage 3 (consistency inputs)
+          artifact-search-root: stage-artifacts
+          artifact-path-globs: |
+            */speed_results.json
+            */wer_results.json
