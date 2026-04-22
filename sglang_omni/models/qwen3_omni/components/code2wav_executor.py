@@ -108,6 +108,7 @@ class _Code2WavStreamingExecutor(Executor):
         )
         self._output_len_by_seq: dict[int, int] = {}
         self._output_len_offset: int | None = None
+        self._probe_attempted: bool = False
 
         if warmup:
             self.warmup()
@@ -429,7 +430,29 @@ class _Code2WavStreamingExecutor(Executor):
             return cached
         if self._output_len_offset is not None:
             return seq_len * self._total_upsample - self._output_len_offset
-        return seq_len * self._total_upsample
+        if self._probe_attempted:
+            raise RuntimeError(
+                "code2wav batched path invoked without warmup or successful "
+                "probe; construct with warmup=True."
+            )
+        self._probe_attempted = True
+        actual = self._probe_output_len(seq_len)
+        self._output_len_by_seq[seq_len] = actual
+        self._output_len_offset = seq_len * self._total_upsample - actual
+        return actual
+
+    @torch.no_grad()
+    def _probe_output_len(self, seq_len: int) -> int:
+        if self._device.type == "cuda":
+            torch.cuda.set_device(self._device)
+        probe = torch.full(
+            (1, self._num_quantizers, seq_len),
+            fill_value=self._pad_token_id,
+            dtype=torch.long,
+            device=self._device,
+        )
+        out = self._model(probe)
+        return int(out.shape[-1])
 
     @torch.no_grad()
     def _vocoder_forward(

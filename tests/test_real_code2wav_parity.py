@@ -145,3 +145,10 @@ def test_short_request_tail_has_no_padding_bleed(
             f"({_db_fs(long_tail_rms):.1f} dBFS) — would indicate real "
             f"padding bleed beyond bf16 batch noise floor"
         )
+        _ABS_CEILING = 10 ** (-60 / 20)
+        assert short_tail_rms < _ABS_CEILING, (
+            f"short_len={short_len}, long_len={long_len}, window={window}: "
+            f"short_tail_rms={short_tail_rms:.2e} "
+            f"({_db_fs(short_tail_rms):.1f} dBFS) exceeds absolute ceiling "
+            f"-60 dBFS — low-amplitude correlated artifact in short tail"
+        )

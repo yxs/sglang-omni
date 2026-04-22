@@ -174,44 +174,47 @@ class _CodePredictorStreamingExecutor(Executor):
             raise RuntimeError("Code predictor requires a stream queue")
 
         self._ensure_batch_loop()
-        current = asyncio.current_task()
-        if current is not None:
-            self._request_tasks[request_id] = current
+        run_task = asyncio.create_task(self._run_request(payload))
+        self._request_tasks[request_id] = run_task
+        run_task.add_done_callback(
+            lambda _t, rid=request_id: self._request_tasks.pop(rid, None)
+        )
+        return await run_task
+
+    async def _run_request(self, payload: StagePayload) -> None:
+        request_id = payload.request_id
         loop = asyncio.get_running_loop()
         chunk_count = 0
 
-        try:
-            while True:
-                if request_id in self._aborted:
-                    break
+        while True:
+            if request_id in self._aborted:
+                break
 
-                item = await self._stream_queue.get(request_id)
-                if item is None:
-                    break
+            item = await self._stream_queue.get(request_id)
+            if item is None:
+                break
 
-                talker_hidden = item.data.to(device=self._device)
-                layer0_code = torch.tensor(
-                    item.metadata["codec_code"],
-                    dtype=torch.long,
-                    device=self._device,
-                )
-                req = _PredictRequest(
-                    request_id=request_id,
-                    talker_hidden=talker_hidden,
-                    layer0_code=layer0_code,
-                    result_future=loop.create_future(),
-                )
-                self._pending.put_nowait(req)
+            talker_hidden = item.data.to(device=self._device)
+            layer0_code = torch.tensor(
+                item.metadata["codec_code"],
+                dtype=torch.long,
+                device=self._device,
+            )
+            req = _PredictRequest(
+                request_id=request_id,
+                talker_hidden=talker_hidden,
+                layer0_code=layer0_code,
+                result_future=loop.create_future(),
+            )
+            self._pending.put_nowait(req)
 
-                try:
-                    output = await req.result_future
-                except asyncio.CancelledError:
-                    break
+            try:
+                output = await req.result_future
+            except asyncio.CancelledError:
+                break
 
-                self._dispatch_outputs(request_id, output)
-                chunk_count += 1
-        finally:
-            self._request_tasks.pop(request_id, None)
+            self._dispatch_outputs(request_id, output)
+            chunk_count += 1
 
         payload.data = {"chunk_count": chunk_count}
         await self._results.put(payload)
