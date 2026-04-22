@@ -12,6 +12,7 @@ from typing import Any
 import torch
 from torch import nn
 
+from sglang_omni.executors._batching import run_batch_loop
 from sglang_omni.executors.interface import Executor
 from sglang_omni.models.qwen3_omni.pipeline.next_stage import (
     CODE2WAV_STAGE,
@@ -20,8 +21,6 @@ from sglang_omni.models.qwen3_omni.pipeline.next_stage import (
 from sglang_omni.proto import StagePayload
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_MAX_BATCH_SIZE: int = 16
 
 
 @dataclass
@@ -141,7 +140,7 @@ class _CodePredictorStreamingExecutor(Executor):
         model: nn.Module,
         device: str | torch.device,
         *,
-        max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
+        max_batch_size: int = 16,
     ):
         self._model = model
         self._device = torch.device(device)
@@ -174,7 +173,6 @@ class _CodePredictorStreamingExecutor(Executor):
             self._aborted.discard(rid)
 
         run_task.add_done_callback(_cleanup)
-        return await run_task
 
     async def _run_request(self, payload: StagePayload) -> None:
         request_id = payload.request_id
@@ -270,16 +268,9 @@ class _CodePredictorStreamingExecutor(Executor):
 
     def _ensure_batch_loop(self) -> None:
         if self._batch_loop_task is None or self._batch_loop_task.done():
-            self._batch_loop_task = asyncio.create_task(self._batch_predict_loop())
-
-    async def _batch_predict_loop(self) -> None:
-        while True:
-            try:
-                await self._batch_predict_step()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("code predictor batch loop iteration failed")
+            self._batch_loop_task = asyncio.create_task(
+                run_batch_loop(self._batch_predict_step, "CodePredictor")
+            )
 
     async def _batch_predict_step(self) -> None:
         loop = asyncio.get_running_loop()
@@ -349,7 +340,7 @@ def create_code_predictor_executor(
     model_path: str,
     *,
     gpu_id: int = 0,
-    max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
+    max_batch_size: int = 16,
 ) -> Executor:
     """Create streaming Code Predictor executor."""
     device = f"cuda:{gpu_id}"
@@ -367,7 +358,7 @@ def create_code_predictor_executor_from_config(
     server_args_overrides: dict[str, Any] | None = None,
 ) -> Executor:
     """Create Code Predictor executor from config args."""
-    max_batch_size = _DEFAULT_MAX_BATCH_SIZE
+    max_batch_size = 16
     if server_args_overrides:
         max_batch_size = int(
             server_args_overrides.get("code_predictor_max_batch_size", max_batch_size)

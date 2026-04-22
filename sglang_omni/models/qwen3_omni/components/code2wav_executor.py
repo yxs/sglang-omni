@@ -14,11 +14,11 @@ import numpy as np
 import torch
 
 from sglang_omni.executors import Executor
+from sglang_omni.executors._batching import run_batch_loop
 from sglang_omni.proto import StagePayload
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_BATCH_SIZE: int = 16
 _DEFAULT_NUM_QUANTIZERS: int = 16
 _DEFAULT_PAD_TOKEN_ID: int = 0
 
@@ -79,7 +79,7 @@ class _Code2WavStreamingExecutor(Executor):
         left_context_size: int = 25,
         sample_rate: int = 24000,
         codec_eos_token_id: int = 2150,
-        max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
+        max_batch_size: int = 16,
         num_quantizers: int = _DEFAULT_NUM_QUANTIZERS,
         pad_token_id: int = _DEFAULT_PAD_TOKEN_ID,
         warmup: bool = True,
@@ -120,7 +120,12 @@ class _Code2WavStreamingExecutor(Executor):
         self._stream_queues[request_id] = asyncio.Queue()
         task = asyncio.create_task(self._run_request(payload))
         self._tasks[request_id] = task
-        task.add_done_callback(lambda _task: self._done.put_nowait(request_id))
+
+        def _cleanup(_task: asyncio.Task, rid: str = request_id) -> None:
+            self._aborted.discard(rid)
+            self._done.put_nowait(rid)
+
+        task.add_done_callback(_cleanup)
 
     async def get_result(self) -> StagePayload:
         while True:
@@ -128,12 +133,10 @@ class _Code2WavStreamingExecutor(Executor):
             task = self._tasks.pop(request_id, None)
             if task is None:
                 continue
-            if request_id in self._aborted:
-                self._aborted.discard(request_id)
-                self._stream_queues.pop(request_id, None)
-                continue
             try:
                 return await task
+            except asyncio.CancelledError:
+                continue
             except Exception as exc:
                 exc.request_id = request_id
                 raise
@@ -290,16 +293,9 @@ class _Code2WavStreamingExecutor(Executor):
 
     def _ensure_batch_loop(self) -> None:
         if self._batch_loop_task is None or self._batch_loop_task.done():
-            self._batch_loop_task = asyncio.create_task(self._batch_decode_loop())
-
-    async def _batch_decode_loop(self) -> None:
-        while True:
-            try:
-                await self._batch_decode_step()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("batch decode loop iteration failed")
+            self._batch_loop_task = asyncio.create_task(
+                run_batch_loop(self._batch_decode_step, "Code2Wav")
+            )
 
     async def _batch_decode_step(self) -> None:
         loop = asyncio.get_running_loop()
@@ -406,6 +402,10 @@ class _Code2WavStreamingExecutor(Executor):
         )
 
     def _compute_valid_samples(self, seq_len: int) -> int:
+        # Architecture-constant offset invariant: output_len == seq_len * total_upsample - offset
+        # holds for all seq_lens on this vocoder. Guarded by
+        # tests/test_real_code2wav_parity.py::test_output_length_offset_is_architecture_constant.
+        # If a new vocoder breaks this, re-enable probing by dropping the offset branch.
         cached = self._output_len_by_seq.get(seq_len)
         if cached is not None:
             return cached
@@ -495,7 +495,7 @@ def create_code2wav_executor(
     *,
     device: str = "cuda",
     dtype: str | None = None,
-    max_batch_size: int = _DEFAULT_MAX_BATCH_SIZE,
+    max_batch_size: int = 16,
     gpu_id: int | None = None,
     stream_chunk_size: int = 10,
     left_context_size: int = 25,
@@ -528,9 +528,7 @@ def create_code2wav_executor_from_config(
 ) -> Executor:
     """Factory mirroring create_code_predictor_executor_from_config."""
     overrides = dict(server_args_overrides or {})
-    max_batch_size = int(
-        overrides.pop("code2wav_max_batch_size", _DEFAULT_MAX_BATCH_SIZE)
-    )
+    max_batch_size = int(overrides.pop("code2wav_max_batch_size", 16))
     warmup = bool(overrides.pop("code2wav_warmup", True))
     stream_chunk_size = int(overrides.pop("code2wav_stream_chunk_size", 10))
     left_context_size = int(overrides.pop("code2wav_left_context_size", 25))
