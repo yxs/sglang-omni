@@ -42,8 +42,6 @@ class _CodePredictorWrapper(nn.Module):
     def forward(
         self, talker_hidden: torch.Tensor, layer0_code: torch.Tensor
     ) -> dict[str, torch.Tensor]:
-        # Inputs: talker_hidden [B, H], layer0_code [B].
-        # Returns: codes [B, num_code_groups], summed_embeddings [B, H].
         hidden = talker_hidden.unsqueeze(1)
         codes_input = layer0_code.unsqueeze(1)
         layer0_embed = self._talker.get_input_embeddings()(codes_input)
@@ -72,24 +70,18 @@ class _CodePredictorWrapper(nn.Module):
         summed_embeddings = codec_hiddens.sum(1)
 
         return {
-            "codes": result_codes,  # [B, num_code_groups]
-            "summed_embeddings": summed_embeddings,  # [B, hidden_size]
+            "codes": result_codes,
+            "summed_embeddings": summed_embeddings,
         }
 
 
 class _LightweightTalkerShell(nn.Module):
-    """Minimal talker shell exposing only what ``_CodePredictorWrapper`` needs.
-
-    Avoids loading the full ~6 GB HF talker when only ``code_predictor``
-    (~0.4 GB) and ``model.codec_embedding`` are actually used.
-    """
+    """Minimal talker shell exposing only what _CodePredictorWrapper needs."""
 
     def __init__(self, config, code_predictor: nn.Module, codec_embedding: nn.Module):
         super().__init__()
         self.config = config
         self.code_predictor = code_predictor
-        # Mirror ``talker.model.codec_embedding`` path so callers using
-        # ``model.codec_embedding`` continue to work.
         self.model = nn.Module()
         self.model.codec_embedding = codec_embedding
 
@@ -156,8 +148,8 @@ class _CodePredictorStreamingExecutor(Executor):
         self._max_batch_size = max(int(max_batch_size), 1)
         self._results: asyncio.Queue[StagePayload] = asyncio.Queue()
         self._aborted: set[str] = set()
-        self._stream_queue: Any | None = None  # Set by compiler
-        self._stream_fn: Any | None = None  # Set by compiler
+        self._stream_queue: Any | None = None
+        self._stream_fn: Any | None = None
         self._pending: asyncio.Queue[_PredictRequest] = asyncio.Queue()
         self._batch_loop_task: asyncio.Task[None] | None = None
         self._request_tasks: dict[str, asyncio.Task[None]] = {}
@@ -283,8 +275,6 @@ class _CodePredictorStreamingExecutor(Executor):
             self._batch_loop_task = asyncio.create_task(self._batch_predict_loop())
 
     async def _batch_predict_loop(self) -> None:
-        # Swallow step-level exceptions so one failed batch (e.g. OOM) does
-        # not kill the loop and deadlock every other caller's Future.
         while True:
             try:
                 await self._batch_predict_step()
@@ -382,8 +372,6 @@ def create_code_predictor_executor_from_config(
     server_args_overrides: dict[str, Any] | None = None,
 ) -> Executor:
     """Create Code Predictor executor from config args."""
-    # AR depth is fixed by ``num_code_groups``; the seq_len knob is kept
-    # in the signature only for config.py compat.
     del code_predictor_max_seq_len
     max_batch_size = _DEFAULT_MAX_BATCH_SIZE
     if server_args_overrides:

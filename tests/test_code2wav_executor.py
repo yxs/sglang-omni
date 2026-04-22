@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for ``_Code2WavStreamingExecutor`` (mock vocoder, CPU)."""
+"""Unit tests for _Code2WavStreamingExecutor (mock vocoder, CPU)."""
 from __future__ import annotations
 
 import asyncio

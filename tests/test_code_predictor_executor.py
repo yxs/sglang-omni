@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for ``_CodePredictorWrapper`` and ``_CodePredictorStreamingExecutor``."""
+"""Unit tests for _CodePredictorWrapper and _CodePredictorStreamingExecutor."""
 
 from __future__ import annotations
 

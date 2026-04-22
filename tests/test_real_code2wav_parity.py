@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Real-model parity tests for ``_forward_batch`` (GPU-gated on ``CODE2WAV_PARITY_MODEL_PATH``)."""
+"""Real-model parity tests for _forward_batch (GPU-gated on CODE2WAV_PARITY_MODEL_PATH)."""
 from __future__ import annotations
 
 import math

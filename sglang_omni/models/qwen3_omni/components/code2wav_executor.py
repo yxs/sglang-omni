@@ -19,14 +19,14 @@ from sglang_omni.proto import StagePayload
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_BATCH_SIZE: int = 16
-_DEFAULT_NUM_QUANTIZERS: int = 16  # Qwen3-Omni RVQ depth
-_DEFAULT_PAD_TOKEN_ID: int = 0  # any id in [0, codebook_size) works; 0 is always safe
+_DEFAULT_NUM_QUANTIZERS: int = 16
+_DEFAULT_PAD_TOKEN_ID: int = 0
 
 
 @dataclass
 class _DecodeRequest:
     request_id: str
-    codes_window: torch.Tensor  # [num_quantizers, seq_len]
+    codes_window: torch.Tensor
     trim_samples: int
     result_future: asyncio.Future[np.ndarray] | None = None
 
@@ -253,7 +253,7 @@ class _Code2WavStreamingExecutor(Executor):
             code_chunks[start_index - context_size : end_index],
             dim=0,
         )
-        codes_window = window.transpose(0, 1)  # [Q, T]
+        codes_window = window.transpose(0, 1)
         trim_samples = context_size * self._total_upsample
         return codes_window, trim_samples
 
@@ -291,8 +291,6 @@ class _Code2WavStreamingExecutor(Executor):
             self._batch_loop_task = asyncio.create_task(self._batch_decode_loop())
 
     async def _batch_decode_loop(self) -> None:
-        # Swallow step-level exceptions so one failed batch (e.g. OOM) does
-        # not kill the loop and deadlock every other caller's Future.
         while True:
             try:
                 await self._batch_decode_step()
@@ -386,12 +384,9 @@ class _Code2WavStreamingExecutor(Executor):
         )
         ordered_lens = sorted(warmup_lens)
         logger.info(
-            "Code2Wav warmup: priming %d (batch_size, seq_len) pairs "
-            "on %s (sizes=%s, seq_lens=%s)",
-            len(sizes) * len(ordered_lens),
-            self._device,
-            sizes,
-            ordered_lens,
+            f"Code2Wav warmup: priming {len(sizes) * len(ordered_lens)} "
+            f"(batch_size, seq_len) pairs on {self._device} "
+            f"(sizes={sizes}, seq_lens={ordered_lens})"
         )
         torch.cuda.set_device(self._device)
         start = time.perf_counter()
@@ -462,7 +457,7 @@ class _Code2WavStreamingExecutor(Executor):
     ) -> np.ndarray:
         if self._device.type == "cuda":
             torch.cuda.set_device(self._device)
-        codes = codes_window.unsqueeze(0)  # [1, Q, T]
+        codes = codes_window.unsqueeze(0)
         wav = self._model(codes)
         if trim_samples:
             wav = wav[..., trim_samples:]
@@ -479,10 +474,6 @@ class _Code2WavStreamingExecutor(Executor):
         max_len = max(r.codes_window.shape[1] for r in batch)
         num_q = batch[0].codes_window.shape[0]
 
-        # ``pad_token_id`` must be inside ``[0, codebook_size)``; the model
-        # embeds codes via ``code_embedding(codes + code_offset)`` and OOB
-        # ids trigger a CUDA illegal access (``codec_eos_token_id=2150``
-        # exceeds Qwen3-Omni's 2048 codebook, so it cannot be used here).
         padded = torch.full(
             (len(batch), num_q, max_len),
             fill_value=self._pad_token_id,
@@ -493,7 +484,7 @@ class _Code2WavStreamingExecutor(Executor):
             seq_len = req.codes_window.shape[1]
             padded[i, :, :seq_len] = req.codes_window
 
-        wav_batch = self._model(padded)  # [B, 1, waveform_len]
+        wav_batch = self._model(padded)
 
         results: list[np.ndarray] = []
         for i, req in enumerate(batch):
@@ -555,13 +546,7 @@ def create_code2wav_executor_from_config(
     server_args_overrides: dict[str, Any] | None = None,
     dtype: str | None = None,
 ) -> Executor:
-    """Factory mirroring ``create_code_predictor_executor_from_config``.
-
-    Recognised ``server_args_overrides`` keys (all optional):
-    ``code2wav_max_batch_size``, ``code2wav_warmup``,
-    ``code2wav_stream_chunk_size``, ``code2wav_left_context_size``,
-    ``code2wav_pad_token_id``.
-    """
+    """Factory mirroring create_code_predictor_executor_from_config."""
     overrides = dict(server_args_overrides or {})
     max_batch_size = int(
         overrides.pop("code2wav_max_batch_size", _DEFAULT_MAX_BATCH_SIZE)
