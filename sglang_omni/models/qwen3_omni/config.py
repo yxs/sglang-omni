@@ -234,7 +234,7 @@ class Qwen3OmniSpeechPipelineConfig(PipelineConfig):
             name=CODE_PREDICTOR_STAGE,
             executor=ExecutorConfig(
                 factory="sglang_omni.models.qwen3_omni.components.code_predictor_executor.create_code_predictor_executor_from_config",
-                args={"code_predictor_max_seq_len": 256},
+                args={"server_args_overrides": {}},
             ),
             get_next="sglang_omni.models.qwen3_omni.pipeline.next_stage.code_predictor_next",
             relay=RelayConfig(device="cuda"),

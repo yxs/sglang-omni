@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -348,4 +349,105 @@ async def test_abort_during_in_flight_forward(
     )
 
     assert dispatched == [], f"_dispatch_outputs leaked after abort: {dispatched}"
-    assert rid not in exe._aborted
+    assert rid in exe._aborted, (
+        "_aborted is write-once per abort(); handlers only read, cleanup "
+        "happens in the add_request done_callback"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_pending_and_tasks(
+    tiny_wrapper: _CodePredictorWrapper,
+) -> None:
+    """stop() must cancel pending futures, registered tasks, and the batch loop."""
+    exe = _CodePredictorStreamingExecutor(
+        model=tiny_wrapper,
+        device="cpu",
+        max_batch_size=4,
+    )
+    exe._ensure_batch_loop()
+    batch_loop_task = exe._batch_loop_task
+    assert batch_loop_task is not None
+
+    loop = asyncio.get_running_loop()
+    pending_req = _PredictRequest(
+        request_id="pending",
+        talker_hidden=torch.randn(_TINY_HIDDEN_SIZE),
+        layer0_code=torch.tensor(0, dtype=torch.long),
+        result_future=loop.create_future(),
+    )
+
+    async def fake_run(payload: Any) -> None:
+        await asyncio.sleep(60)
+
+    fake_payload = type("P", (), {"request_id": "inflight"})()
+    inflight_task = asyncio.create_task(fake_run(fake_payload))
+    exe._request_tasks["inflight"] = inflight_task
+    exe._pending.put_nowait(pending_req)
+
+    await exe.stop()
+
+    with contextlib.suppress(asyncio.CancelledError):
+        await inflight_task
+
+    assert (
+        pending_req.result_future.cancelled()
+    ), "pending request's future should be cancelled by stop()"
+    assert inflight_task.cancelled(), "tracked run_task should be cancelled by stop()"
+    assert exe._request_tasks == {}
+    assert batch_loop_task.done(), "batch loop task should be done after stop()"
+
+
+@pytest.mark.asyncio
+async def test_forward_exception_propagates_and_loop_survives(
+    tiny_wrapper: _CodePredictorWrapper,
+) -> None:
+    """If _run_batch raises, all live futures get the exception and the loop recovers."""
+    exe = _CodePredictorStreamingExecutor(
+        model=tiny_wrapper,
+        device="cpu",
+        max_batch_size=4,
+    )
+    try:
+        exe._ensure_batch_loop()
+
+        original_run_batch = exe._run_batch
+        call_count = {"n": 0}
+
+        def flaky_run_batch(batch: list[_PredictRequest]):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("simulated forward failure")
+            return original_run_batch(batch)
+
+        exe._run_batch = flaky_run_batch
+
+        loop = asyncio.get_running_loop()
+        first = _PredictRequest(
+            request_id="first",
+            talker_hidden=torch.randn(_TINY_HIDDEN_SIZE),
+            layer0_code=torch.tensor(1, dtype=torch.long),
+            result_future=loop.create_future(),
+        )
+        exe._pending.put_nowait(first)
+
+        with pytest.raises(RuntimeError, match="simulated forward failure"):
+            await asyncio.wait_for(first.result_future, timeout=5.0)
+
+        assert exe._batch_loop_task is not None
+        assert (
+            not exe._batch_loop_task.done()
+        ), "batch loop should survive a single forward exception"
+
+        second = _PredictRequest(
+            request_id="second",
+            talker_hidden=torch.randn(_TINY_HIDDEN_SIZE),
+            layer0_code=torch.tensor(2, dtype=torch.long),
+            result_future=loop.create_future(),
+        )
+        exe._pending.put_nowait(second)
+
+        out = await asyncio.wait_for(second.result_future, timeout=5.0)
+        assert out["codes"].shape == (_TINY_NUM_CODE_GROUPS,)
+    finally:
+        await _drain_batch_loop(exe)

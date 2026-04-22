@@ -108,7 +108,6 @@ class _Code2WavStreamingExecutor(Executor):
         )
         self._output_len_by_seq: dict[int, int] = {}
         self._output_len_offset: int | None = None
-        self._probe_attempted: bool = False
 
         if warmup:
             self.warmup()
@@ -130,6 +129,7 @@ class _Code2WavStreamingExecutor(Executor):
             if task is None:
                 continue
             if request_id in self._aborted:
+                self._aborted.discard(request_id)
                 self._stream_queues.pop(request_id, None)
                 continue
             try:
@@ -185,7 +185,9 @@ class _Code2WavStreamingExecutor(Executor):
         if self._stream_queue is None:
             raise RuntimeError("Code2Wav executor requires a stream queue")
 
-        queue = self._stream_queues[request_id]
+        queue = self._stream_queues.get(request_id)
+        if queue is None:
+            raise asyncio.CancelledError()
         code_chunks: list[torch.Tensor] = []
         audio_chunks: list[np.ndarray] = []
         emitted_positions = 0
@@ -317,7 +319,6 @@ class _Code2WavStreamingExecutor(Executor):
                 fut = r.result_future
                 if fut is not None and not fut.done():
                     fut.cancel()
-                self._aborted.discard(r.request_id)
             else:
                 live.append(r)
         if not live:
@@ -328,29 +329,18 @@ class _Code2WavStreamingExecutor(Executor):
             if req.request_id in self._aborted:
                 if fut is not None and not fut.done():
                     fut.cancel()
-                self._aborted.discard(req.request_id)
                 return
             if fut is not None and not fut.done():
                 fut.set_result(audio)
 
         try:
-            if len(live) == 1:
-                r = live[0]
-                audio = await loop.run_in_executor(
-                    self._forward_pool,
-                    self._vocoder_forward,
-                    r.codes_window,
-                    r.trim_samples,
-                )
-                _finalize(r, audio)
-            else:
-                audios = await loop.run_in_executor(
-                    self._forward_pool,
-                    self._forward_batch,
-                    live,
-                )
-                for req, audio in zip(live, audios):
-                    _finalize(req, audio)
+            audios = await loop.run_in_executor(
+                self._forward_pool,
+                self._forward_batch,
+                live,
+            )
+            for req, audio in zip(live, audios):
+                _finalize(req, audio)
         except Exception as exc:
             for req in live:
                 fut = req.result_future
@@ -403,20 +393,16 @@ class _Code2WavStreamingExecutor(Executor):
                 prev = self._output_len_by_seq.get(seq_len)
                 if prev is not None and prev != actual:
                     logger.warning(
-                        "Code2Wav output length non-deterministic for "
-                        "seq_len=%d: prev=%d vs now=%d",
-                        seq_len,
-                        prev,
-                        actual,
+                        f"Code2Wav output length non-deterministic for "
+                        f"seq_len={seq_len}: prev={prev} vs now={actual}"
                     )
                 self._output_len_by_seq[seq_len] = actual
                 if self._output_len_offset is None:
                     self._output_len_offset = seq_len * self._total_upsample - actual
         torch.cuda.synchronize(self._device)
         logger.info(
-            "Code2Wav warmup complete in %.2fs; output_len_offset=%s",
-            time.perf_counter() - start,
-            self._output_len_offset,
+            f"Code2Wav warmup complete in {time.perf_counter() - start:.2f}s; "
+            f"output_len_offset={self._output_len_offset}"
         )
 
     def _compute_valid_samples(self, seq_len: int) -> int:
@@ -425,12 +411,6 @@ class _Code2WavStreamingExecutor(Executor):
             return cached
         if self._output_len_offset is not None:
             return seq_len * self._total_upsample - self._output_len_offset
-        if self._probe_attempted:
-            raise RuntimeError(
-                "code2wav batched path invoked without warmup or successful "
-                "probe; construct with warmup=True."
-            )
-        self._probe_attempted = True
         actual = self._probe_output_len(seq_len)
         self._output_len_by_seq[seq_len] = actual
         self._output_len_offset = seq_len * self._total_upsample - actual
@@ -555,6 +535,9 @@ def create_code2wav_executor_from_config(
     stream_chunk_size = int(overrides.pop("code2wav_stream_chunk_size", 10))
     left_context_size = int(overrides.pop("code2wav_left_context_size", 25))
     pad_token_id = int(overrides.pop("code2wav_pad_token_id", _DEFAULT_PAD_TOKEN_ID))
+    num_quantizers = int(
+        overrides.pop("code2wav_num_quantizers", _DEFAULT_NUM_QUANTIZERS)
+    )
     return create_code2wav_executor(
         model_path=model_path,
         gpu_id=gpu_id,
@@ -562,6 +545,7 @@ def create_code2wav_executor_from_config(
         max_batch_size=max_batch_size,
         stream_chunk_size=stream_chunk_size,
         left_context_size=left_context_size,
+        num_quantizers=num_quantizers,
         pad_token_id=pad_token_id,
         warmup=warmup,
     )

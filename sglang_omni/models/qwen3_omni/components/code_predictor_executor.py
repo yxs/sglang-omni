@@ -168,9 +168,12 @@ class _CodePredictorStreamingExecutor(Executor):
         self._ensure_batch_loop()
         run_task = asyncio.create_task(self._run_request(payload))
         self._request_tasks[request_id] = run_task
-        run_task.add_done_callback(
-            lambda _t, rid=request_id: self._request_tasks.pop(rid, None)
-        )
+
+        def _cleanup(_t: asyncio.Task, rid: str = request_id) -> None:
+            self._request_tasks.pop(rid, None)
+            self._aborted.discard(rid)
+
+        run_task.add_done_callback(_cleanup)
         return await run_task
 
     async def _run_request(self, payload: StagePayload) -> None:
@@ -208,14 +211,14 @@ class _CodePredictorStreamingExecutor(Executor):
             self._dispatch_outputs(request_id, output)
             chunk_count += 1
 
-        payload.data = {"chunk_count": chunk_count}
-        await self._results.put(payload)
+        if request_id not in self._aborted:
+            payload.data = {"chunk_count": chunk_count}
+            await self._results.put(payload)
 
     def _dispatch_outputs(
         self, request_id: str, output: dict[str, torch.Tensor]
     ) -> None:
         if request_id in self._aborted:
-            self._aborted.discard(request_id)
             return
         if self._stream_fn is None:
             return
@@ -229,12 +232,7 @@ class _CodePredictorStreamingExecutor(Executor):
         self._stream_fn = fn
 
     async def get_result(self) -> StagePayload:
-        while True:
-            result = await self._results.get()
-            if result.request_id in self._aborted:
-                self._aborted.discard(result.request_id)
-                continue
-            return result
+        return await self._results.get()
 
     async def abort(self, request_id: str) -> None:
         self._aborted.add(request_id)
@@ -244,7 +242,7 @@ class _CodePredictorStreamingExecutor(Executor):
         if self._stream_queue is not None:
             try:
                 self._stream_queue.close(request_id)
-            except Exception:
+            except KeyError:
                 pass
 
     async def stop(self) -> None:
@@ -301,7 +299,6 @@ class _CodePredictorStreamingExecutor(Executor):
                 fut = r.result_future
                 if fut is not None and not fut.done():
                     fut.cancel()
-                self._aborted.discard(r.request_id)
             else:
                 live.append(r)
         if not live:
@@ -318,7 +315,6 @@ class _CodePredictorStreamingExecutor(Executor):
                 if req.request_id in self._aborted:
                     if fut is not None and not fut.done():
                         fut.cancel()
-                    self._aborted.discard(req.request_id)
                 elif fut is not None and not fut.done():
                     fut.set_result(output)
         except Exception as exc:
@@ -368,11 +364,9 @@ def create_code_predictor_executor_from_config(
     model_path: str,
     *,
     gpu_id: int = 0,
-    code_predictor_max_seq_len: int = 256,
     server_args_overrides: dict[str, Any] | None = None,
 ) -> Executor:
     """Create Code Predictor executor from config args."""
-    del code_predictor_max_seq_len
     max_batch_size = _DEFAULT_MAX_BATCH_SIZE
     if server_args_overrides:
         max_batch_size = int(
