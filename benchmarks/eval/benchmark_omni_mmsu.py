@@ -42,7 +42,7 @@ CI runs on a subset and has its own thresholds elsewhere (see tasks/*.py).
 
 Benchmark: MMSU     |  Dataset: MMSU full (5000 samples)
 Hardware:  1 x H200 (default; non-H200 sources are tagged in Source column)
-Last verified: 2026-04-18
+Last verified: 2026-04-25
 
 Accuracy (accuracy)
 
@@ -50,8 +50,8 @@ Accuracy (accuracy)
 | ---------- | --------------------- | ---------------- | ----------------- | ------------------- | ----------------------------- |
 | Qwen3-Omni | modalities=text       | 70.88%           | 5000/5000         | 0                   | PR #316 [H200, full-set, c=8] |
 | Qwen3-Omni | modalities=text+audio | 71.22%           | 5000/5000         | 0                   | PR #316 [H200, full-set, c=8] |
-| Qwen3-Omni | modalities=text       | 71.10%           | 4999/5000         | 1                   | PR #??? [H100, full-set, c=8] |
-| Qwen3-Omni | modalities=text+audio | 71.14%           | 5000/5000         | 0                   | PR #??? [H100, full-set, c=8] |
+| Qwen3-Omni | modalities=text       | 71.10%           | 4999/5000         | 1                   | PR #351 [H100, full-set, c=8] |
+| Qwen3-Omni | modalities=text+audio | 71.14%           | 5000/5000         | 0                   | PR #351 [H100, full-set, c=8] |
 
 Per-task accuracy (accuracy.per_task; top-level task names only — full sub/sub-sub trees stay in JSON output)
 
@@ -59,8 +59,8 @@ Per-task accuracy (accuracy.per_task; top-level task names only — full sub/sub
 | ---------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | Qwen3-Omni | modalities=text       | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 10.10%, pitch_comparison 22.22%, speed_comparison 22.94% | PR #316 [H200, full-set] |
 | Qwen3-Omni | modalities=text+audio | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 12.12%, speed_comparison 21.10%, pitch_comparison 24.07% | PR #316 [H200, full-set] |
-| Qwen3-Omni | modalities=text       | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 12.12%, speed_comparison 22.94%, pitch_comparison 23.15%   | PR #??? [H100, full-set] |
-| Qwen3-Omni | modalities=text+audio | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 13.13%, speed_comparison 22.02%, pitch_comparison 24.07%   | PR #??? [H100, full-set] |
+| Qwen3-Omni | modalities=text       | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 12.12%, speed_comparison 22.94%, pitch_comparison 23.15%   | PR #351 [H100, full-set] |
+| Qwen3-Omni | modalities=text+audio | strong: casual_reasoning / continuation_writing / long_speech_summarization / polysemy_reasoning = 100%; weak: dialogue_turn_counting 13.13%, speed_comparison 22.02%, pitch_comparison 24.07%   | PR #351 [H100, full-set] |
 
 Speed (speed)
 
@@ -68,8 +68,8 @@ Speed (speed)
 | ---------- | --------------------- | -------------- | ------------- | -------------- | -------------- | ------------- | ----------------------------------------------- |
 | Qwen3-Omni | modalities=text       | 0.349          | 0.484         | 22.91          | 6.1            | 5.9           | PR #316 [H200, full-set, c=8]                   |
 | Qwen3-Omni | modalities=text+audio | 0.330          | 0.444         | 24.23          | 6.4            | 6.3           | PR #316 [H200, full-set, c=8, text-only server] |
-| Qwen3-Omni | modalities=text       | 0.512          | 0.864         | 15.598         | 4.5            | 4.0           | PR #??? [H100, full-set, c=8]                   |
-| Qwen3-Omni | modalities=text+audio | 0.515          | 0.884         | 15.521         | 4.4            | 4.0           | PR #??? [H100, full-set, c=8] (text-only server) |
+| Qwen3-Omni | modalities=text       | 0.512          | 0.864         | 15.598         | 4.5            | 4.0           | PR #351 [H100, full-set, c=8]                   |
+| Qwen3-Omni | modalities=text+audio | 0.515          | 0.884         | 15.521         | 4.4            | 4.0           | PR #351 [H100, full-set, c=8] (text-only server) |
 
 Note (Xuesong): text + audio numbers above were measured against a text-only
 Qwen3-Omni server (talker disabled) because a full-pipeline run is blocked on
