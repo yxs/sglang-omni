@@ -35,8 +35,8 @@ Accuracy (summary)
 
 | Model      | Config             | accuracy | correct | failed | mc_fallback | Source                                                 |
 | ---------- | ------------------ | -------- | ------- | ------ | ----------- | ------------------------------------------------------ |
-| Qwen3-Omni | enable_audio=False | 66.33%   | 597/900 | 0      | 22          | this PR [H200, V1-pipeline, full-set, c=8, max_tokens=2048]         |
-| Qwen3-Omni | enable_audio=True  | 60.00%   | 30/50   | 0      | 2           | this PR [H200, V1-pipeline, 50-sample subset, c=1, max_tokens=2048] |
+| Qwen3-Omni | enable_audio=False | 66.33%   | 597/900 | 0      | 22          | PR #393 [H200, V1-pipeline, full-set, c=8, max_tokens=2048]         |
+| Qwen3-Omni | enable_audio=True  | 60.00%   | 30/50   | 0      | 2           | PR #393 [H200, V1-pipeline, 50-sample subset, c=1, max_tokens=2048] |
 | Qwen3-Omni | enable_audio=False | 66.11%   | 595/900 | 0      | 28          | PR #351 [H100, full-set, c=8, max_tokens=2048, text-only server] |
 | Qwen3-Omni | enable_audio=True  | 18.00%   | 9/50    | 21     | 20          | PR #351 [H100, 50-sample subset, c=1, max_tokens=64, timeout=120s] |
 
@@ -47,8 +47,8 @@ Speed (speed)
 
 | Model      | Config             | latency_mean_s | latency_p95_s | throughput_qps | tok_per_s_mean | tok_per_s_agg | Source                                                     |
 | ---------- | ------------------ | -------------- | ------------- | -------------- | -------------- | ------------- | ---------------------------------------------------------- |
-| Qwen3-Omni | enable_audio=False | 5.724          | 20.134        | 1.377          | 83.5           | 88.4          | this PR [H200, V1-pipeline, full-set, c=8, max_tokens=2048]             |
-| Qwen3-Omni | enable_audio=True  | 70.927         | 197.541       | 0.014          | 10.2           | 8.2           | this PR [H200, V1-pipeline, **50-sample subset**, c=1, max_tokens=2048] |
+| Qwen3-Omni | enable_audio=False | 5.724          | 20.134        | 1.377          | 83.5           | 88.4          | PR #393 [H200, V1-pipeline, full-set, c=8, max_tokens=2048]             |
+| Qwen3-Omni | enable_audio=True  | 70.927         | 197.541       | 0.014          | 10.2           | 8.2           | PR #393 [H200, V1-pipeline, **50-sample subset**, c=1, max_tokens=2048] |
 | Qwen3-Omni | enable_audio=False | 20.297         | 74.122        | 0.392          | 24.9           | 25.4          | PR #351 [H100, full-set, c=8, max_tokens=2048, text-only server] |
 | Qwen3-Omni | enable_audio=True  | 19.579         | 23.147        | 0.009          | 3.3            | 3.3           | PR #351 [H100, 50-sample subset, c=1, max_tokens=64, timeout=120s] |
 
