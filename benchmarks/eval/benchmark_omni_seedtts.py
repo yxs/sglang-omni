@@ -15,7 +15,7 @@ Usage:
     # Launch the server:
     python -m sglang_omni.cli serve \
         --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
-        --port 8000
+        --version v1 --port 8000
 
     # Download the test set:
     python -m benchmarks.dataset.prepare --dataset seedtts
@@ -58,7 +58,7 @@ Accuracy (accuracy.wer)
 
 | Model      | Config            | wer_corpus | wer_per_sample_mean | wer_per_sample_median | wer_per_sample_std | evaluated | skipped | Source                         |
 | ---------- | ----------------- | ---------- | ------------------- | --------------------- | ------------------ | --------- | ------- | ------------------------------ |
-| Qwen3-Omni | EN, voice_clone=T | 2.61%      | 2.60%               | 0.00%                 | 10.2%              | 1088/1088 | 0       | PR #393 [H200, V1-pipeline, full-set, c=16] |
+| Qwen3-Omni | EN, voice_clone=T | 2.18%      | 2.28%               | 0.00%                 | 7.8%               | 1088/1088 | 0       | PR #393 [H200, V1-pipeline, full-set, c=16, n=3 mean] |
 | Qwen3-Omni | EN, voice_clone=F | 2.06%      | 2.19%               | 0.00%                 | 6.8%               | 1088/1088 | 0       | PR #393 [H200, V1-pipeline, full-set, c=16] |
 | Qwen3-Omni | ZH, voice_clone=T | 1.88%      | 1.80%               | 0.00%                 | 12.0%              | 2020/2020 | 0       | PR #393 [H200, V1-pipeline, full-set, c=16] |
 | Qwen3-Omni | ZH, voice_clone=F | 1.80%      | 1.70%               | 0.00%                 | 8.0%               | 2020/2020 | 0       | PR #393 [H200, V1-pipeline, full-set, c=16] |
