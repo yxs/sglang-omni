@@ -288,6 +288,7 @@ class MultiProcessPipelineRunner:
         self._fatal_error: BaseException | None = None
         self._prep: PipelineRuntimePrep | None = None
         self._started = False
+        self._stopped_event: asyncio.Event | None = None
 
     @property
     def coordinator(self) -> Coordinator:
@@ -320,6 +321,7 @@ class MultiProcessPipelineRunner:
             ctx = multiprocessing.get_context("spawn")
             self._fatal_event = asyncio.Event()
             self._fatal_error = None
+            self._stopped_event = None
             prep = prepare_pipeline_runtime(
                 self._config,
                 ipc_runtime_dir=self._ipc_runtime_dir,
@@ -426,35 +428,41 @@ class MultiProcessPipelineRunner:
         self._ipc_runtime_dir = None
 
     async def stop(self) -> None:
+        if self._stopped_event is not None:
+            await self._stopped_event.wait()
+            return
         if not self._started:
             return
         self._started = False
-
-        if self._monitor_task is not None:
-            current = asyncio.current_task()
-            if current != self._monitor_task:
-                self._monitor_task.cancel()
-            self._monitor_task = None
-
-        # Send shutdown to stages via coordinator
+        self._stopped_event = asyncio.Event()
         try:
-            await self._coordinator.shutdown_stages()
-        except Exception as e:
-            logger.warning("shutdown_stages error: %s", e)
+            if self._monitor_task is not None:
+                current = asyncio.current_task()
+                if current != self._monitor_task:
+                    self._monitor_task.cancel()
+                self._monitor_task = None
 
-        # Shutdown all groups
-        await asyncio.gather(
-            *(g.shutdown() for g in self._groups),
-            return_exceptions=True,
-        )
+            # Send shutdown to stages via coordinator
+            try:
+                await self._coordinator.shutdown_stages()
+            except Exception as e:
+                logger.warning("shutdown_stages error: %s", e)
 
-        await self._cancel_completion_task()
+            # Shutdown all groups
+            await asyncio.gather(
+                *(g.shutdown() for g in self._groups),
+                return_exceptions=True,
+            )
 
-        await self._coordinator.stop()
-        self._groups.clear()
-        self._coordinator = None
+            await self._cancel_completion_task()
 
-        self._close_runtime_dir()
+            await self._coordinator.stop()
+            self._groups.clear()
+            self._coordinator = None
+
+            self._close_runtime_dir()
+        finally:
+            self._stopped_event.set()
 
     async def _cleanup_on_failure(self) -> None:
         """Best-effort cleanup after a failed start()."""
