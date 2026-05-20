@@ -244,12 +244,13 @@ class ModelRunner:
             rep_toks.extend(unique)
             rep_penalties.extend([float(penalty)] * len(unique))
         if rep_rows:
+            orig_dtype = logits.dtype
             rows_t = torch.tensor(rep_rows, dtype=torch.long, device=device)
             toks_t = torch.tensor(rep_toks, dtype=torch.long, device=device)
-            pens_t = torch.tensor(rep_penalties, dtype=logits.dtype, device=device)
-            scores = logits[rows_t, toks_t]
+            pens_t = torch.tensor(rep_penalties, dtype=torch.float32, device=device)
+            scores = logits[rows_t, toks_t].to(torch.float32)
             scores = torch.where(scores > 0, scores / pens_t, scores * pens_t)
-            logits[rows_t, toks_t] = scores
+            logits[rows_t, toks_t] = scores.to(orig_dtype)
 
     def _apply_codec_suppress_tokens(self, logits_output: Any, requests: list) -> None:
         logits = logits_output.next_token_logits
