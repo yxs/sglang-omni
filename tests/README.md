@@ -36,6 +36,7 @@ tests/
     │   ├── test_code2wav.py
     │   ├── test_colocation_config.py
     │   ├── test_config_manager.py
+    │   ├── test_logit_shaping.py
     │   ├── test_pipeline.py
     │   ├── test_sglang_ar_budget.py
     │   ├── test_streaming.py
@@ -181,7 +182,8 @@ that happened to contain an older version of the test.
   - colocation config and SGLang AR budget contracts
   - `PipelineState` request builders
   - talker behavior
-  - Code2Wav streaming/cleanup behavior.
+  - Code2Wav streaming/cleanup behavior
+  - logit-shaping helpers (e.g. repetition penalty) numerical equivalence with the original per-row scalar formulas.
 
 - `unit_test/router/`: SGLang-Omni Router unit tests:
   - router CLI/config behavior
