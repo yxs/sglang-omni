@@ -202,13 +202,18 @@ def print_speed_summary(
         )
     if metrics.get("audio_ttfp_mean_s") is not None:
         print(f"  {'TTFC mean (s):':<{lw}} {metrics['audio_ttfp_mean_s']}")
+        print(f"  {'TTFC median (s):':<{lw}} {metrics['audio_ttfp_median_s']}")
         print(f"  {'TTFC p95 (s):':<{lw}} {metrics['audio_ttfp_p95_s']}")
+        print(f"  {'TTFC p99 (s):':<{lw}} {metrics['audio_ttfp_p99_s']}")
     if metrics.get("text_ttft_mean_s") is not None:
         print(f"  {'TTFT mean (s):':<{lw}} {metrics['text_ttft_mean_s']}")
+        print(f"  {'TTFT median (s):':<{lw}} {metrics['text_ttft_median_s']}")
         print(f"  {'TTFT p95 (s):':<{lw}} {metrics['text_ttft_p95_s']}")
+        print(f"  {'TTFT p99 (s):':<{lw}} {metrics['text_ttft_p99_s']}")
     if metrics.get("inter_chunk_mean_s") is not None:
         print(f"  {'ITL mean (s):':<{lw}} {metrics['inter_chunk_mean_s']}")
         print(f"  {'ITL p95 (s):':<{lw}} {metrics['inter_chunk_p95_s']}")
+        print(f"  {'ITL p99 (s):':<{lw}} {metrics['inter_chunk_p99_s']}")
     if metrics.get("output_throughput") is not None:
         print(f"  {'Output throughput (tok/s):':<{lw}} {metrics['output_throughput']}")
     if metrics.get("output_tok_per_req_s") is not None:
