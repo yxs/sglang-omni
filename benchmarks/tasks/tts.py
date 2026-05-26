@@ -823,6 +823,8 @@ class VoiceCloneOmni:
         voice_clone: bool = False,
         stream: bool = False,
         system_prompt: str | None = None,
+        chunk_times_out: list[float] | None = None,
+        text_first_time_holder: list[float] | None = None,
     ) -> tuple[bytes, float, dict]:
         if max_tokens is None:
             max_tokens = self.THINKER_MAX_NEW_TOKENS
@@ -871,7 +873,11 @@ class VoiceCloneOmni:
                 error_text = await response.text()
                 raise RuntimeError(f"HTTP {response.status}: {error_text}")
             if stream:
-                wav_bytes, usage = await self._read_streaming_chat_audio(response)
+                wav_bytes, usage = await self._read_streaming_chat_audio(
+                    response,
+                    chunk_times_out=chunk_times_out,
+                    text_first_time_holder=text_first_time_holder,
+                )
                 latency = time.perf_counter() - t0
                 return wav_bytes, latency, usage
             resp_json = await response.json()
@@ -900,6 +906,8 @@ class VoiceCloneOmni:
     async def _read_streaming_chat_audio(
         self,
         response: aiohttp.ClientResponse,
+        chunk_times_out: list[float] | None = None,
+        text_first_time_holder: list[float] | None = None,
     ) -> tuple[bytes, dict]:
         """Read OpenAI chat SSE audio deltas and concatenate them into one WAV."""
         pcm_chunks: list[bytes] = []
@@ -918,6 +926,8 @@ class VoiceCloneOmni:
                     pcm_chunks,
                     stream_format,
                     usage,
+                    chunk_times_out=chunk_times_out,
+                    text_first_time_holder=text_first_time_holder,
                 )
 
         if buffer.strip():
@@ -926,6 +936,8 @@ class VoiceCloneOmni:
                 pcm_chunks,
                 stream_format,
                 usage,
+                chunk_times_out=chunk_times_out,
+                text_first_time_holder=text_first_time_holder,
             )
 
         if not pcm_chunks or stream_format is None:
@@ -1133,6 +1145,8 @@ def _collect_chat_streaming_audio(
     pcm_chunks: list[bytes],
     stream_format: tuple[int, int, int] | None,
     usage: dict,
+    chunk_times_out: list[float] | None = None,
+    text_first_time_holder: list[float] | None = None,
 ) -> tuple[int, int, int] | None:
     event = parse_sse_event(line)
     if event is None:
@@ -1149,6 +1163,10 @@ def _collect_chat_streaming_audio(
         delta = choice.get("delta")
         if not isinstance(delta, dict):
             continue
+        if text_first_time_holder is not None and not text_first_time_holder:
+            content = delta.get("content")
+            if isinstance(content, str) and content:
+                text_first_time_holder.append(time.perf_counter())
         audio = delta.get("audio")
         if not isinstance(audio, dict) or not audio.get("data"):
             continue
@@ -1159,6 +1177,8 @@ def _collect_chat_streaming_audio(
             with io.BytesIO(chunk_bytes) as buf:
                 with wave.open(buf, "rb") as wf:
                     pcm_chunks.append(wf.readframes(wf.getnframes()))
+                    if chunk_times_out is not None:
+                        chunk_times_out.append(time.perf_counter())
                     if stream_format is None:
                         stream_format = (
                             wf.getframerate(),
