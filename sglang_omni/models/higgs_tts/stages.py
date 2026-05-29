@@ -193,6 +193,9 @@ def create_audio_encoder_executor(
     adapter = HiggsTokenizerAdapter(tokenizer)
 
     codec = get_or_load_codec(checkpoint_dir, device, dtype)
+    codec.model.acoustic_encoder = torch.compile(
+        codec.model.acoustic_encoder, mode="default", dynamic=True
+    )
 
     def _encode(payload: StagePayload) -> StagePayload:
         state = HiggsTtsState.from_dict(payload.data)
