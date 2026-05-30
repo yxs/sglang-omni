@@ -477,6 +477,14 @@ def create_vocoder_executor(
     """
     checkpoint_dir = resolve_checkpoint(model_path)
     codec = get_or_load_codec(checkpoint_dir, device, dtype)
+    codec.model.acoustic_decoder = torch.compile(
+        codec.model.acoustic_decoder, dynamic=True
+    )
+    codec.decode(
+        codec.encode_reference(
+            torch.zeros(codec.SAMPLE_RATE), sample_rate=codec.SAMPLE_RATE
+        )
+    )
 
     return HiggsStreamingVocoderScheduler(
         codec,

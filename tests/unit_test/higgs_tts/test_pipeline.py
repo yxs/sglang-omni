@@ -527,6 +527,12 @@ def _fake_codec_fixtures(monkeypatch):
     class FakeCodec:
         SAMPLE_RATE = 24_000
 
+        def __init__(self):
+            self.model = SimpleNamespace(acoustic_decoder=torch.nn.Identity())
+
+        def encode_reference(self, waveform, *, sample_rate=None):
+            return torch.zeros((75, 8), dtype=torch.long)
+
         def decode(self, codes_TN):
             return torch.zeros(codes_TN.shape[0], dtype=torch.float32)
 
