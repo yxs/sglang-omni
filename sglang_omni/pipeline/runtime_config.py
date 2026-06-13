@@ -16,6 +16,10 @@ from sglang_omni.config.topology import ProcessTopologyPlan, build_process_topol
 
 logger = logging.getLogger(__name__)
 
+_IPC_SUN_PATH_BUDGET = 100
+_LONGEST_STAGE_NAME = 24
+_ENDPOINT_PATH_OVERHEAD = len("/-XXXXXXXX/stage_.sock")
+
 
 class IpcRuntimeDir:
     """Runtime-owned IPC directory for one pipeline instance."""
@@ -67,6 +71,8 @@ def create_ipc_runtime_dir(config: PipelineConfig) -> IpcRuntimeDir:
     namespace_prefix = re.sub(r"[^0-9a-z]+", "-", config.name.lower()).strip("-")
     if not namespace_prefix:
         namespace_prefix = "pipeline"
+    overhead = len(str(base_root)) + _ENDPOINT_PATH_OVERHEAD + _LONGEST_STAGE_NAME
+    namespace_prefix = namespace_prefix[: max(8, _IPC_SUN_PATH_BUDGET - overhead)]
     path = Path(tempfile.mkdtemp(prefix=f"{namespace_prefix}-", dir=base_root))
     return IpcRuntimeDir(path)
 
