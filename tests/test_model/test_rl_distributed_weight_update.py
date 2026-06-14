@@ -21,7 +21,7 @@ latency ~0.58s for all 397 body params.
 
 Run manually on a 2-GPU box::
 
-    python -m pytest tests/integration/test_rl_distributed_weight_update.py -s
+    python -m pytest tests/test_model/test_rl_distributed_weight_update.py -s
 """
 
 from __future__ import annotations
