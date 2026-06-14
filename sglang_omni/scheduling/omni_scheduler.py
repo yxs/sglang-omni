@@ -359,6 +359,13 @@ class OmniScheduler:
         from types import SimpleNamespace
 
         self.session_controller = SimpleNamespace(sessions={})
+        self.dllm_manager = SimpleNamespace(any_staging_reqs=lambda: False)
+        device = getattr(self, "device", None)
+        self.device_module = (
+            torch.get_device_module(device)
+            if device is not None
+            else torch.get_device_module()
+        )
 
     def self_check_during_idle(self) -> None:
         self.new_token_ratio = self.init_new_token_ratio

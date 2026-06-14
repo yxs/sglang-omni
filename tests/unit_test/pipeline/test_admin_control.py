@@ -215,6 +215,59 @@ def test_omni_scheduler_update_weights_flushes_cache_without_kwargs() -> None:
     assert empty_cache_calls == 1
 
 
+def test_omni_scheduler_flush_cache_has_upstream_idle_compat_fields() -> None:
+    from sglang_omni.scheduling.omni_scheduler import OmniScheduler
+
+    class EmptyBatch:
+        reqs: list = []
+
+        def is_empty(self) -> bool:
+            return True
+
+    reset_calls: list[str] = []
+    scheduler = object.__new__(OmniScheduler)
+    scheduler.device = "cuda"
+    OmniScheduler._init_upstream_compat_flags(
+        scheduler,
+        SimpleNamespace(
+            enable_hisparse=False,
+            enable_priority_scheduling=False,
+            disable_priority_preemption=False,
+        ),
+    )
+    scheduler.running_batch = EmptyBatch()
+    scheduler.chunked_req = None
+    scheduler.last_batch = None
+    scheduler.cur_batch = None
+    scheduler.enable_overlap = False
+    scheduler.pp_size = 1
+    scheduler.waiting_queue = []
+    scheduler.grammar_manager = SimpleNamespace(
+        grammar_queue=[], clear=lambda: reset_calls.append("grammar")
+    )
+    scheduler.disaggregation_mode = None
+    scheduler.enable_hierarchical_cache = False
+    scheduler.tree_cache = SimpleNamespace(reset=lambda: reset_calls.append("tree"))
+    scheduler.req_to_token_pool = SimpleNamespace(
+        clear=lambda: reset_calls.append("req_pool")
+    )
+    scheduler.token_to_kv_pool_allocator = SimpleNamespace(
+        clear=lambda: reset_calls.append("kv_pool")
+    )
+    scheduler.reset_metrics = lambda: reset_calls.append("metrics")
+    scheduler.draft_worker = None
+
+    assert OmniScheduler._flush_cache_after_update(scheduler) is True
+    assert scheduler.device_module is not None
+    assert reset_calls == [
+        "tree",
+        "req_pool",
+        "kv_pool",
+        "grammar",
+        "metrics",
+    ]
+
+
 def test_omni_scheduler_distributed_update_rejects_active_requests_by_default() -> None:
     from sglang_omni.scheduling.omni_scheduler import OmniScheduler
 

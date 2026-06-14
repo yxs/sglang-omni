@@ -29,9 +29,10 @@ from __future__ import annotations
 import glob
 import json
 import os
-import select
+import queue
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -149,23 +150,37 @@ def _wait_for_process_line(
     timeout: float,
 ) -> str:
     assert proc.stdout is not None
+    line_queue = getattr(proc, "_omni_stdout_line_queue", None)
+    if line_queue is None:
+        line_queue = queue.Queue()
+
+        def _read_stdout() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line_queue.put(line)
+            line_queue.put(None)
+
+        threading.Thread(target=_read_stdout, daemon=True).start()
+        setattr(proc, "_omni_stdout_line_queue", line_queue)
+
     deadline = time.time() + timeout
     output: list[str] = []
     while time.time() < deadline:
-        if proc.poll() is not None:
-            rest = proc.stdout.read() or ""
-            if rest:
-                output.append(rest)
+        remaining = max(0.0, deadline - time.time())
+        try:
+            line = line_queue.get(timeout=min(0.2, remaining))
+        except queue.Empty:
+            if proc.poll() is not None:
+                raise AssertionError(
+                    f"trainer exited with {proc.returncode} while waiting for {marker}: "
+                    + "".join(output)
+                )
+            continue
+        if line is None:
             raise AssertionError(
                 f"trainer exited with {proc.returncode} while waiting for {marker}: "
                 + "".join(output)
             )
-        ready, _, _ = select.select([proc.stdout], [], [], 0.2)
-        if not ready:
-            continue
-        line = proc.stdout.readline()
-        if not line:
-            continue
         output.append(line)
         if marker in line:
             return line
