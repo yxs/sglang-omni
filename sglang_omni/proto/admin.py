@@ -12,6 +12,7 @@ ADMIN_CONTINUE_GENERATION = "continue_generation"
 ADMIN_UPDATE_WEIGHTS_FROM_DISK = "update_weights_from_disk"
 ADMIN_UPDATE_WEIGHTS_FROM_TENSOR = "update_weights_from_tensor"
 ADMIN_UPDATE_WEIGHTS_FROM_DISTRIBUTED = "update_weights_from_distributed"
+ADMIN_INIT_WEIGHTS_UPDATE_GROUP = "init_weights_update_group"
 ADMIN_WEIGHTS_CHECKER = "weights_checker"
 
 

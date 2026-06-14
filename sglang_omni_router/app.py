@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 _ADMIN_UPDATE_PATHS = {
     "/pause_generation",
     "/update_weights_from_disk",
+    "/update_weights_from_distributed",
+    "/init_weights_update_group",
 }
 _ADMIN_UPDATE_LOCK_TIMEOUT_S = 300.0
 
@@ -334,9 +336,21 @@ def register_routes(
     async def update_weights_from_tensor(request: Request) -> JSONResponse:
         return _not_implemented_response()
 
+    @app.post("/init_weights_update_group", dependencies=[Depends(_auth)])
+    async def init_weights_update_group(request: Request) -> JSONResponse:
+        return await _broadcast_admin_request(
+            app,
+            request,
+            "/init_weights_update_group",
+        )
+
     @app.post("/update_weights_from_distributed", dependencies=[Depends(_auth)])
     async def update_weights_from_distributed(request: Request) -> JSONResponse:
-        return _not_implemented_response()
+        return await _broadcast_admin_request(
+            app,
+            request,
+            "/update_weights_from_distributed",
+        )
 
     @app.api_route(
         "/weights_checker",

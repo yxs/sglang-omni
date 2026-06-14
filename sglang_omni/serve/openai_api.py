@@ -70,11 +70,13 @@ from sglang_omni.serve.protocol import (
     ChatCompletionStreamResponse,
     ContinueGenerationRequest,
     CreateSpeechRequest,
+    InitWeightsUpdateGroupRequest,
     ModelCard,
     ModelList,
     PauseGenerationRequest,
     TranscriptionResponse,
     UpdateWeightFromDiskRequest,
+    UpdateWeightsFromDistributedRequest,
     UsageResponse,
     WeightsCheckerRequest,
 )
@@ -251,21 +253,32 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             },
         )
 
+    @app.post("/init_weights_update_group", dependencies=[Depends(_auth)])
+    async def init_weights_update_group(
+        req: InitWeightsUpdateGroupRequest,
+    ) -> JSONResponse:
+        client: Client = app.state.client
+        payload = _request_payload(req)
+        return _admin_response(
+            await client.init_weights_update_group(
+                payload,
+                stages=req.stages,
+                timeout_s=req.timeout_s or 300.0,
+            )
+        )
+
     @app.post("/update_weights_from_distributed", dependencies=[Depends(_auth)])
     async def update_weights_from_distributed(
-        request: Request,
+        req: UpdateWeightsFromDistributedRequest,
     ) -> JSONResponse:
-        return JSONResponse(
-            status_code=501,
-            content={
-                "error": {
-                    "message": (
-                        "update_weights_from_distributed is not yet implemented. "
-                        "Use update_weights_from_disk for the disk-based weight update path."
-                    ),
-                    "code": "not_implemented",
-                }
-            },
+        client: Client = app.state.client
+        payload = _request_payload(req)
+        return _admin_response(
+            await client.update_weights_from_distributed(
+                payload,
+                stages=req.stages,
+                timeout_s=req.timeout_s or 300.0,
+            )
         )
 
     @app.get("/weights_checker", dependencies=[Depends(_auth)])

@@ -1682,6 +1682,7 @@ _ROUTER_ADMIN_PATHS = [
     ("POST", "/update_weights_from_disk"),
     ("POST", "/update_weights_from_tensor"),
     ("POST", "/update_weights_from_distributed"),
+    ("POST", "/init_weights_update_group"),
     ("GET", "/weights_checker"),
     ("POST", "/weights_checker"),
 ]
@@ -1794,25 +1795,24 @@ def test_router_admin_env_key(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("path", "payload"),
-    [
-        ("/update_weights_from_tensor", {}),
-        (
-            "/update_weights_from_distributed",
-            {"names": [], "dtypes": [], "shapes": []},
-        ),
-    ],
-)
-def test_router_unimplemented_weight_update_endpoints_return_501(
-    path: str,
-    payload: dict[str, Any],
-) -> None:
+def test_router_unimplemented_tensor_weight_update_returns_501() -> None:
     app = _admin_router_app()
     with TestClient(app) as client:
-        resp = client.post(path, json=payload)
+        resp = client.post("/update_weights_from_tensor", json={})
     assert resp.status_code == 501
     assert resp.json()["error"]["code"] == "not_implemented"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/update_weights_from_distributed", "/init_weights_update_group"],
+)
+def test_router_distributed_weight_update_routes_broadcast(path: str) -> None:
+    app = _admin_router_app()
+    with TestClient(app) as client:
+        resp = client.post(path, json={"names": [], "dtypes": [], "shapes": []})
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
 
 
 # ---------------------------------------------------------------------------

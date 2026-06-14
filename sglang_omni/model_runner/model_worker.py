@@ -276,12 +276,54 @@ class ModelWorker:
             )
         return self._call_optional_weight_method("update_weights_from_tensor", payload)
 
+    def init_weights_update_group(self, payload: dict[str, Any]) -> tuple[bool, str]:
+        init = getattr(self.model_runner, "init_weights_update_group", None)
+        if init is None:
+            return False, "model runner does not support init_weights_update_group"
+        master_address = payload.get("master_address")
+        master_port = payload.get("master_port")
+        world_size = payload.get("world_size")
+        if not master_address or master_port is None or world_size is None:
+            return False, "master_address, master_port and world_size are required"
+        success, message = init(
+            master_address,
+            int(master_port),
+            int(payload.get("rank_offset", 0)),
+            int(world_size),
+            payload.get("group_name") or "weight_update_group",
+            backend=payload.get("backend") or "nccl",
+        )
+        return bool(success), str(message)
+
     def update_weights_from_distributed(
         self, payload: dict[str, Any]
     ) -> tuple[bool, str]:
-        return self._call_optional_weight_method(
-            "update_weights_from_distributed", payload
+        update = getattr(self.model_runner, "update_weights_from_distributed", None)
+        if update is None:
+            return (
+                False,
+                "model runner does not support update_weights_from_distributed",
+            )
+        names = payload.get("names")
+        dtypes = payload.get("dtypes")
+        shapes = payload.get("shapes")
+        if not names or dtypes is None or shapes is None:
+            return False, "names, dtypes and shapes are required"
+        success, message = update(
+            names,
+            dtypes,
+            shapes,
+            payload.get("group_name") or "weight_update_group",
+            load_format=payload.get("load_format"),
         )
+        if success:
+            weight_version = payload.get("weight_version")
+            if weight_version is not None:
+                setattr(self.server_args, "weight_version", weight_version)
+                runner_args = getattr(self.model_runner, "server_args", None)
+                if runner_args is not None:
+                    setattr(runner_args, "weight_version", weight_version)
+        return bool(success), str(message)
 
     def weights_checker(self, action: str) -> dict[str, Any]:
         checker = getattr(self, "_strict_weight_checker", None)

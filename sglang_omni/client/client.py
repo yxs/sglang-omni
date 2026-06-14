@@ -321,6 +321,32 @@ class Client:
             timeout_s=timeout_s,
         )
 
+    async def init_weights_update_group(
+        self,
+        payload: dict[str, Any],
+        *,
+        stages: list[str] | None = None,
+        timeout_s: float = 300.0,
+    ) -> dict[str, Any]:
+        return await self._coordinator.init_weights_update_group(
+            payload,
+            stages=stages,
+            timeout_s=timeout_s,
+        )
+
+    async def update_weights_from_distributed(
+        self,
+        payload: dict[str, Any],
+        *,
+        stages: list[str] | None = None,
+        timeout_s: float = 300.0,
+    ) -> dict[str, Any]:
+        return await self._coordinator.update_weights_from_distributed(
+            payload,
+            stages=stages,
+            timeout_s=timeout_s,
+        )
+
     async def weights_checker(
         self,
         payload: dict[str, Any] | None = None,

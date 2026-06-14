@@ -33,6 +33,7 @@ from sglang.srt.utils import broadcast_pyobj
 from sglang_omni.profiler.event_recorder import emit as _emit_event
 from sglang_omni.proto.admin import (
     ADMIN_CONTINUE_GENERATION,
+    ADMIN_INIT_WEIGHTS_UPDATE_GROUP,
     ADMIN_MODEL_INFO,
     ADMIN_PAUSE_GENERATION,
     ADMIN_UPDATE_WEIGHTS_FROM_DISK,
@@ -945,6 +946,8 @@ class OmniScheduler:
             return self._admin_update_weights_from_tensor(payload)
         if action == ADMIN_UPDATE_WEIGHTS_FROM_DISTRIBUTED:
             return self._admin_update_weights_from_distributed(payload)
+        if action == ADMIN_INIT_WEIGHTS_UPDATE_GROUP:
+            return self._admin_init_weights_update_group(payload)
         if action == ADMIN_WEIGHTS_CHECKER:
             return self._admin_weights_checker(payload)
         return {
@@ -1125,6 +1128,28 @@ class OmniScheduler:
             "data": {
                 "group_name": payload.get("group_name"),
                 "names": payload.get("names", []),
+            },
+            "error": None if success else str(message),
+        }
+
+    def _admin_init_weights_update_group(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not hasattr(self.model_worker, "init_weights_update_group"):
+            return {
+                "success": True,
+                "message": "stage does not support init_weights_update_group",
+                "data": {"skipped": True, "unsupported": True},
+            }
+        with self._admin_lock:
+            success, message = self.model_worker.init_weights_update_group(payload)
+        return {
+            "success": bool(success),
+            "message": str(message),
+            "data": {
+                "group_name": payload.get("group_name"),
+                "world_size": payload.get("world_size"),
+                "rank_offset": payload.get("rank_offset"),
             },
             "error": None if success else str(message),
         }
