@@ -70,6 +70,7 @@ from sglang_omni.serve.protocol import (
     ChatCompletionStreamResponse,
     ContinueGenerationRequest,
     CreateSpeechRequest,
+    DestroyWeightsUpdateGroupRequest,
     InitWeightsUpdateGroupRequest,
     ModelCard,
     ModelList,
@@ -194,7 +195,7 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
         return _model_info_response(
             await client.model_info(
                 stages=req.stages,
-                timeout_s=req.timeout_s or 30.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 30.0),
             )
         )
 
@@ -206,7 +207,7 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             await client.pause_generation(
                 payload,
                 stages=req.stages,
-                timeout_s=req.timeout_s or 60.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 60.0),
             )
         )
 
@@ -218,7 +219,7 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             await client.continue_generation(
                 payload,
                 stages=req.stages,
-                timeout_s=req.timeout_s or 60.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 60.0),
             )
         )
 
@@ -232,7 +233,7 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             await client.update_weights_from_disk(
                 payload,
                 stages=req.stages,
-                timeout_s=req.timeout_s or 120.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 120.0),
             )
         )
 
@@ -263,7 +264,21 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             await client.init_weights_update_group(
                 payload,
                 stages=req.stages,
-                timeout_s=req.timeout_s or 300.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 300.0),
+            )
+        )
+
+    @app.post("/destroy_weights_update_group", dependencies=[Depends(_auth)])
+    async def destroy_weights_update_group(
+        req: DestroyWeightsUpdateGroupRequest,
+    ) -> JSONResponse:
+        client: Client = app.state.client
+        payload = _request_payload(req)
+        return _admin_response(
+            await client.destroy_weights_update_group(
+                payload,
+                stages=req.stages,
+                timeout_s=_timeout_or_default(req.timeout_s, 300.0),
             )
         )
 
@@ -277,7 +292,7 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             await client.update_weights_from_distributed(
                 payload,
                 stages=req.stages,
-                timeout_s=req.timeout_s or 300.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 300.0),
             )
         )
 
@@ -294,9 +309,13 @@ def _register_admin(app: FastAPI, admin_api_key: str | None = None) -> None:
             await client.weights_checker(
                 payload,
                 stages=req.stages,
-                timeout_s=req.timeout_s or 120.0,
+                timeout_s=_timeout_or_default(req.timeout_s, 120.0),
             )
         )
+
+
+def _timeout_or_default(timeout_s: float | None, default: float) -> float:
+    return default if timeout_s is None else timeout_s
 
 
 def _request_payload(req: AdminRequestBase) -> dict[str, Any]:

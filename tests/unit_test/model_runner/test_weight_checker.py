@@ -162,6 +162,28 @@ def test_model_worker_init_weights_update_group_passes_positional_args() -> None
     assert calls == [("10.0.0.1", 12355, 1, 2, "talker_group", "nccl")]
 
 
+def test_model_worker_destroy_weights_update_group_passes_group_name() -> None:
+    calls: list[str] = []
+
+    def destroy_weights_update_group(group_name: str) -> tuple[bool, str]:
+        calls.append(group_name)
+        return True, "group destroyed"
+
+    runner = SimpleNamespace(destroy_weights_update_group=destroy_weights_update_group)
+    worker = object.__new__(ModelWorker)
+    worker.server_args = SimpleNamespace()
+    worker.model_runner = runner
+
+    success, message = ModelWorker.destroy_weights_update_group(
+        worker,
+        {"group_name": "talker_group"},
+    )
+
+    assert success is True
+    assert message == "group destroyed"
+    assert calls == ["talker_group"]
+
+
 def test_model_worker_update_weights_from_distributed_passes_positional_args() -> None:
     calls: list[tuple[Any, ...]] = []
 
@@ -219,3 +241,34 @@ def test_model_worker_update_weights_from_distributed_requires_names() -> None:
 
     assert success is False
     assert "names" in message
+
+
+def test_model_worker_update_weights_from_distributed_rejects_mismatched_metadata() -> (
+    None
+):
+    calls = 0
+
+    def update_weights_from_distributed(*args, **kwargs) -> tuple[bool, str]:
+        nonlocal calls
+        calls += 1
+        return True, "should not be called"
+
+    runner = SimpleNamespace(
+        update_weights_from_distributed=update_weights_from_distributed,
+    )
+    worker = object.__new__(ModelWorker)
+    worker.server_args = SimpleNamespace()
+    worker.model_runner = runner
+
+    success, message = ModelWorker.update_weights_from_distributed(
+        worker,
+        {
+            "names": ["model.embed.weight"],
+            "dtypes": ["bfloat16"],
+            "shapes": [[4, 8], [8, 4]],
+        },
+    )
+
+    assert success is False
+    assert "same length" in message
+    assert calls == 0

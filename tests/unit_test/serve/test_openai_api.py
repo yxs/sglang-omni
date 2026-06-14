@@ -200,6 +200,16 @@ class AdminClient:
         self.calls.append(("init_weights_update_group", payload, stages, timeout_s))
         return {"success": True, "message": "ok", "results": []}
 
+    async def destroy_weights_update_group(
+        self,
+        payload: dict[str, Any],
+        *,
+        stages: list[str] | None = None,
+        timeout_s: float = 300.0,
+    ) -> dict[str, Any]:
+        self.calls.append(("destroy_weights_update_group", payload, stages, timeout_s))
+        return {"success": True, "message": "ok", "results": []}
+
     async def update_weights_from_distributed(
         self,
         payload: dict[str, Any],
@@ -622,6 +632,7 @@ _ADMIN_PATHS_THAT_NEED_AUTH = [
     ("POST", "/update_weights_from_tensor"),
     ("POST", "/update_weights_from_distributed"),
     ("POST", "/init_weights_update_group"),
+    ("POST", "/destroy_weights_update_group"),
     ("GET", "/weights_checker"),
     ("POST", "/weights_checker"),
 ]
@@ -735,7 +746,7 @@ def test_distributed_weight_update_routes_forward_to_client() -> None:
             "world_size": 2,
             "rank_offset": 1,
             "stages": ["talker"],
-            "timeout_s": 30,
+            "timeout_s": 0,
         },
     )
     update = client.post(
@@ -746,11 +757,21 @@ def test_distributed_weight_update_routes_forward_to_client() -> None:
             "shapes": [[2, 2]],
             "group_name": "weight_update_group",
             "weight_version": "v2",
+            "timeout_s": 0,
+        },
+    )
+    destroy = client.post(
+        "/destroy_weights_update_group",
+        json={
+            "group_name": "weight_update_group",
+            "stages": ["talker"],
+            "timeout_s": 0,
         },
     )
 
     assert init.status_code == 200
     assert update.status_code == 200
+    assert destroy.status_code == 200
     assert admin.calls == [
         (
             "init_weights_update_group",
@@ -763,7 +784,7 @@ def test_distributed_weight_update_routes_forward_to_client() -> None:
                 "backend": "nccl",
             },
             ["talker"],
-            30,
+            0,
         ),
         (
             "update_weights_from_distributed",
@@ -778,7 +799,13 @@ def test_distributed_weight_update_routes_forward_to_client() -> None:
                 "torch_empty_cache": False,
             },
             None,
-            300.0,
+            0,
+        ),
+        (
+            "destroy_weights_update_group",
+            {"group_name": "weight_update_group"},
+            ["talker"],
+            0,
         ),
     ]
 

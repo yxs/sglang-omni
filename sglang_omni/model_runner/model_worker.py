@@ -295,6 +295,13 @@ class ModelWorker:
         )
         return bool(success), str(message)
 
+    def destroy_weights_update_group(self, payload: dict[str, Any]) -> tuple[bool, str]:
+        destroy = getattr(self.model_runner, "destroy_weights_update_group", None)
+        if destroy is None:
+            return False, "model runner does not support destroy_weights_update_group"
+        success, message = destroy(payload.get("group_name") or "weight_update_group")
+        return bool(success), str(message)
+
     def update_weights_from_distributed(
         self, payload: dict[str, Any]
     ) -> tuple[bool, str]:
@@ -307,8 +314,18 @@ class ModelWorker:
         names = payload.get("names")
         dtypes = payload.get("dtypes")
         shapes = payload.get("shapes")
-        if not names or dtypes is None or shapes is None:
+        if names is None or dtypes is None or shapes is None:
             return False, "names, dtypes and shapes are required"
+        try:
+            name_count = len(names)
+            dtype_count = len(dtypes)
+            shape_count = len(shapes)
+        except TypeError:
+            return False, "names, dtypes and shapes must be sized sequences"
+        if name_count == 0 or dtype_count == 0 or shape_count == 0:
+            return False, "names, dtypes and shapes must be non-empty"
+        if name_count != dtype_count or name_count != shape_count:
+            return False, "names, dtypes and shapes must have the same length"
         success, message = update(
             names,
             dtypes,

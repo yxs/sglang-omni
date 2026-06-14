@@ -331,5 +331,9 @@ class InitWeightsUpdateGroupRequest(AdminRequestBase):
     backend: str = "nccl"
 
 
+class DestroyWeightsUpdateGroupRequest(AdminRequestBase):
+    group_name: str = "weight_update_group"
+
+
 class WeightsCheckerRequest(AdminRequestBase):
     action: str = "checksum"

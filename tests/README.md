@@ -5,6 +5,8 @@ tests/
 ├── __init__.py
 ├── utils.py
 ├── data/
+├── integration/
+│   └── test_rl_distributed_weight_update.py
 ├── test_model/
 │   ├── conftest.py
 │   ├── test_qwen3_omni_*_ci.py
@@ -375,3 +377,21 @@ that happened to contain an older version of the test.
 
 - `unit_test/fixtures/`: Shared fakes. Single-test
   helpers should stay local until a second test needs them.
+
+## `integration/`
+
+Focused runtime integration tests that need real optional services, model
+snapshots, or GPU/NCCL resources but are not part of the regular unit-test lane.
+
+Expected command for the RL distributed refit smoke test:
+
+```bash
+python -m pytest tests/integration/test_rl_distributed_weight_update.py -s
+```
+
+- `test_rl_distributed_weight_update.py`: launches a Higgs TTS worker on one GPU
+  and a rank-0 trainer subprocess on another GPU, initializes the distributed
+  weight-update group, broadcasts base-model body weights, verifies the
+  `tts_engine` checksum changes, destroys the update group, and checks the
+  server still serves audio. It is skipped unless two GPUs and the required
+  Higgs base checkpoint are already available in the Hugging Face cache.

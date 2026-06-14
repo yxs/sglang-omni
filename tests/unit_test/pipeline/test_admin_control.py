@@ -215,6 +215,104 @@ def test_omni_scheduler_update_weights_flushes_cache_without_kwargs() -> None:
     assert empty_cache_calls == 1
 
 
+def test_omni_scheduler_distributed_update_rejects_active_requests_by_default() -> None:
+    from sglang_omni.scheduling.omni_scheduler import OmniScheduler
+
+    update_calls: list[dict] = []
+    scheduler = object.__new__(OmniScheduler)
+    scheduler.model_worker = SimpleNamespace(
+        update_weights_from_distributed=lambda payload: update_calls.append(payload)
+        or (True, "ok")
+    )
+    scheduler._admin_lock = threading.Lock()
+    scheduler._engine_paused = False
+    scheduler._last_pause_mode = None
+    scheduler._async_pending = None
+    scheduler.result_queue = None
+    scheduler._resolve_pending_async = lambda: None
+    scheduler._active_request_ids = lambda: ["req-1"]
+
+    result = OmniScheduler._admin_update_weights_from_distributed(
+        scheduler,
+        {
+            "names": ["w.0"],
+            "dtypes": ["bfloat16"],
+            "shapes": [[2, 2]],
+            "flush_cache": False,
+            "abort_all_requests": False,
+        },
+    )
+
+    assert result["success"] is False
+    assert "active requests are present" in result["message"]
+    assert result["data"]["active_request_count"] == 1
+    assert scheduler._engine_paused is False
+    assert update_calls == []
+
+
+def test_omni_scheduler_distributed_update_aborts_and_flushes_cache() -> None:
+    from sglang_omni.scheduling.omni_scheduler import OmniScheduler
+
+    update_calls: list[dict] = []
+    flush_calls = 0
+    empty_cache_calls = 0
+    abort_calls = 0
+
+    def update_weights_from_distributed(payload: dict) -> tuple[bool, str]:
+        update_calls.append(dict(payload))
+        return True, "ok"
+
+    def flush_cache() -> bool:
+        nonlocal flush_calls
+        flush_calls += 1
+        return True
+
+    def empty_torch_cache() -> None:
+        nonlocal empty_cache_calls
+        empty_cache_calls += 1
+
+    def abort_all_requests() -> int:
+        nonlocal abort_calls
+        abort_calls += 1
+        return 1
+
+    scheduler = object.__new__(OmniScheduler)
+    scheduler.model_worker = SimpleNamespace(
+        update_weights_from_distributed=update_weights_from_distributed
+    )
+    scheduler._admin_lock = threading.Lock()
+    scheduler._engine_paused = False
+    scheduler._last_pause_mode = None
+    scheduler._async_pending = None
+    scheduler.result_queue = None
+    scheduler._resolve_pending_async = lambda: None
+    scheduler._active_request_ids = lambda: ["req-1"]
+    scheduler._abort_all_requests = abort_all_requests
+    scheduler.flush_cache = flush_cache
+    scheduler._empty_torch_cache = empty_torch_cache
+
+    payload = {
+        "names": ["w.0"],
+        "dtypes": ["bfloat16"],
+        "shapes": [[2, 2]],
+        "group_name": "talker_group",
+        "abort_all_requests": True,
+        "torch_empty_cache": True,
+    }
+    result = OmniScheduler._admin_update_weights_from_distributed(scheduler, payload)
+
+    assert result["success"] is True
+    assert result["data"]["num_paused_requests"] == 1
+    assert result["data"]["flush_cache"] is True
+    assert result["data"]["flush_success"] is True
+    assert result["data"]["group_name"] == "talker_group"
+    assert result["data"]["names"] == ["w.0"]
+    assert update_calls == [payload]
+    assert abort_calls == 1
+    assert flush_calls == 1
+    assert empty_cache_calls == 1
+
+
 def test_coordinator_admin_waits_for_all_stage_results() -> None:
     async def _run() -> None:
         coordinator = Coordinator(

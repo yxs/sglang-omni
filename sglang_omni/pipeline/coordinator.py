@@ -273,6 +273,20 @@ class Coordinator:
             timeout_s=timeout_s,
         )
 
+    async def destroy_weights_update_group(
+        self,
+        payload: dict[str, Any],
+        *,
+        stages: Sequence[str] | None = None,
+        timeout_s: float = 300.0,
+    ) -> dict[str, Any]:
+        return await self.admin(
+            "destroy_weights_update_group",
+            payload,
+            stages=stages,
+            timeout_s=timeout_s,
+        )
+
     async def update_weights_from_distributed(
         self,
         payload: dict[str, Any],

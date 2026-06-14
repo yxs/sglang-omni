@@ -39,6 +39,7 @@ _ADMIN_UPDATE_PATHS = {
     "/update_weights_from_disk",
     "/update_weights_from_distributed",
     "/init_weights_update_group",
+    "/destroy_weights_update_group",
 }
 _ADMIN_UPDATE_LOCK_TIMEOUT_S = 300.0
 
@@ -342,6 +343,14 @@ def register_routes(
             app,
             request,
             "/init_weights_update_group",
+        )
+
+    @app.post("/destroy_weights_update_group", dependencies=[Depends(_auth)])
+    async def destroy_weights_update_group(request: Request) -> JSONResponse:
+        return await _broadcast_admin_request(
+            app,
+            request,
+            "/destroy_weights_update_group",
         )
 
     @app.post("/update_weights_from_distributed", dependencies=[Depends(_auth)])

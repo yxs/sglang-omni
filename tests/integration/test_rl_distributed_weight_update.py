@@ -29,6 +29,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import select
 import subprocess
 import sys
 import time
@@ -110,6 +111,7 @@ def _run_trainer() -> None:
         json.dump(manifest, fh)
     print(f"[trainer] MANIFEST_WRITTEN n={len(names)}", flush=True)
 
+    print("[trainer] RENDEZVOUS_START", flush=True)
     group_handle = init_custom_process_group(
         backend="nccl",
         init_method=f"tcp://localhost:{port}",
@@ -139,6 +141,35 @@ def _wait_for(predicate, timeout: float, interval: float = 2.0) -> bool:
             return True
         time.sleep(interval)
     return False
+
+
+def _wait_for_process_line(
+    proc: subprocess.Popen,
+    marker: str,
+    timeout: float,
+) -> str:
+    assert proc.stdout is not None
+    deadline = time.time() + timeout
+    output: list[str] = []
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            rest = proc.stdout.read() or ""
+            if rest:
+                output.append(rest)
+            raise AssertionError(
+                f"trainer exited with {proc.returncode} while waiting for {marker}: "
+                + "".join(output)
+            )
+        ready, _, _ = select.select([proc.stdout], [], [], 0.2)
+        if not ready:
+            continue
+        line = proc.stdout.readline()
+        if not line:
+            continue
+        output.append(line)
+        if marker in line:
+            return line
+    raise AssertionError(f"timed out waiting for trainer marker {marker}")
 
 
 @pytest.fixture(scope="module")
@@ -210,13 +241,16 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
             manifest,
         ],
         env=trainer_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
     try:
-        assert _wait_for(
-            lambda: os.path.exists(manifest), timeout=180
-        ), "trainer never wrote manifest"
-        time.sleep(4)
-        spec = json.load(open(manifest))
+        _wait_for_process_line(trainer, "MANIFEST_WRITTEN", timeout=180)
+        _wait_for_process_line(trainer, "RENDEZVOUS_START", timeout=30)
+        with open(manifest) as fh:
+            spec = json.load(fh)
 
         before = _tts_checksum().get("per_gpu_checksum")
         assert before, "no baseline checksum from tts_engine stage"
@@ -235,6 +269,7 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
             timeout=180,
         )
         assert r.status_code == 200 and r.json()["success"], r.text
+        _wait_for_process_line(trainer, "RENDEZVOUS_OK", timeout=180)
 
         t0 = time.perf_counter()
         r = requests.post(
@@ -266,6 +301,12 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
         assert (
             audio.status_code == 200 and len(audio.content) > 1000
         ), "server stopped serving audio after refit"
+        r = requests.post(
+            f"{URL}/destroy_weights_update_group",
+            json={"group_name": GROUP_NAME, "stages": ["tts_engine"]},
+            timeout=180,
+        )
+        assert r.status_code == 200 and r.json()["success"], r.text
     finally:
         try:
             trainer.wait(timeout=120)
