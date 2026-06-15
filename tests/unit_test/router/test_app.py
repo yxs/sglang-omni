@@ -1855,8 +1855,6 @@ def test_router_init_weights_update_group_single_replica_broadcasts() -> None:
 
 
 def test_router_init_weights_update_group_rejects_multiple_replicas() -> None:
-    # _admin_router_app targets 2 live workers; a single rank_offset can't be
-    # broadcast to multiple replicas without NCCL rank collisions.
     app = _admin_router_app()
     with TestClient(app) as client:
         resp = client.post("/init_weights_update_group", json=_INIT_GROUP_PAYLOAD)

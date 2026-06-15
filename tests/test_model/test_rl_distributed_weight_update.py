@@ -79,11 +79,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-# --------------------------------------------------------------------------- #
-# rank-0 trainer: broadcasts base-model body weights over NCCL.
-# Invoked as a subprocess: `python <thisfile> trainer <port> <group> <base_dir>
-#                            <prefix> <limit> <manifest_path>`
-# --------------------------------------------------------------------------- #
 def _run_trainer() -> None:
     os.environ.setdefault("NCCL_CUMEM_ENABLE", "0")
     os.environ.setdefault("NCCL_NVLS_ENABLE", "0")
@@ -132,10 +127,6 @@ def _run_trainer() -> None:
         torch.distributed.destroy_process_group(group_handle)
     except Exception:
         pass
-
-
-# Process-line wait helpers (_wait_for / _wait_for_process_line) live in
-# tests/_util/process.py, shared with the lightweight unit test.
 
 
 @pytest.fixture(scope="module")

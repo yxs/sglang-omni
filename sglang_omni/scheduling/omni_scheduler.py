@@ -1068,7 +1068,6 @@ class OmniScheduler:
                     if active_request_ids and not self._can_update_active_requests(
                         previous_pause_state
                     ):
-                        # _engine_paused is restored by the finally below.
                         return {
                             "success": False,
                             "message": (

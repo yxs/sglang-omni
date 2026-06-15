@@ -158,7 +158,6 @@ def test_model_worker_init_weights_update_group_passes_positional_args() -> None
 
     assert success is True
     assert message == "group ready"
-    # The sglang ModelRunner takes positional scalar args, not a recv_req object.
     assert calls == [("10.0.0.1", 12355, 1, 2, "talker_group", "nccl")]
 
 
