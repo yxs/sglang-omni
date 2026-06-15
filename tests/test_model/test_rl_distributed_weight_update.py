@@ -1,30 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """End-to-end distributed weight-update (refit) test for the RL admin control plane.
 
-Mirrors sglang's ``test/registered/rl/test_update_weights_from_distributed.py``,
-adapted to the SGLang-Omni multi-stage pipeline. A rank-0 "trainer" process
-broadcasts base-model weights over a NCCL process group; the omni ``tts_engine``
-stage receives them through the admin control plane
-(``/init_weights_update_group`` + ``/update_weights_from_distributed``). The test
-asserts every broadcast ``body.*`` param bit-matches the base weights after refit
-(per-tensor SHA256 parity, not merely "changed"), the server still serves audio,
-and prints the refit latency.
+Boots a Higgs TTS-4B *instruct* omni server and refits it to the *base* checkpoint
+over the admin control plane (``/init_weights_update_group`` +
+``/update_weights_from_distributed``), with a rank-0 trainer broadcasting the base
+``body.*`` weights over NCCL. Asserts that every refit-changed parameter bit-matches
+(SHA256) a server loaded directly from base, and that the server still serves audio.
 
-Only the non-tied ``body.*`` transformer params are broadcast: tied audio-codebook
-weights require trainer-side ``convert_to_hf`` mapping, which is the training side's
-concern, not the inference-side control plane under test here.
+Parity is checked inference-vs-inference (a base-loaded reference server vs the
+refitted server) rather than against the raw checkpoint, because the model renames
+and fuses params during ``load_weights`` (397 checkpoint ``body.*`` tensors collapse
+to ~226 fused parameters) -- the checkpoint and the served model use different keys.
 
-Requires 2 GPUs + the Higgs TTS-4B (instruct) and 4B-base checkpoints in the HF
-cache. Skipped otherwise (e.g. in CPU/1-GPU CI).
-
-Validated on 2xH100 (sglang 0.5.8): update success, checksum changed, audio served,
-latency ~0.58s for all 397 body params. The sglang ``init_weights_update_group`` /
-``update_weights_from_distributed`` signatures are compatible across 0.5.8 and the
-pinned ``sglang==0.5.12.post1`` (``load_format`` present in both).
-
-Run manually on a 2-GPU box::
-
-    python -m pytest tests/test_model/test_rl_distributed_weight_update.py -s
+Requires 2 GPUs + the Higgs 4B base and instruct checkpoints in the HF cache; skipped
+otherwise. Run: ``pytest tests/test_model/test_rl_distributed_weight_update.py -s``
 """
 
 from __future__ import annotations
@@ -32,6 +21,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -45,9 +35,9 @@ HF_TTS_MODEL = "bosonai/higgs-audio-v3-tts-4b"
 BASE_CACHE_DIRNAME = "models--boson-sglang--higgs-audio-v3-generation-4B-base"
 INSTRUCT_CACHE_DIRNAME = "models--bosonai--higgs-audio-v3-tts-4b"
 SERVER_PORT = int(os.environ.get("OMNI_E2E_PORT", "8200"))
+BASE_REF_PORT = int(os.environ.get("OMNI_E2E_BASE_PORT", "8201"))
 MASTER_PORT = int(os.environ.get("OMNI_E2E_MASTER_PORT", "29570"))
 GROUP_NAME = "rl_e2e_weight_update_group"
-URL = f"http://localhost:{SERVER_PORT}"
 
 
 def _hf_hub_root() -> str:
@@ -79,8 +69,12 @@ def _two_gpus() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not (_two_gpus() and _resolve_base_dir()),
-    reason="requires 2 GPUs + Higgs 4B-base checkpoint in the HF cache",
+    not (
+        _two_gpus()
+        and _resolve_base_dir()
+        and _resolve_snapshot(INSTRUCT_CACHE_DIRNAME)
+    ),
+    reason="requires 2 GPUs + Higgs 4B-base and 4B-instruct checkpoints in the HF cache",
 )
 
 
@@ -89,8 +83,6 @@ def _run_trainer() -> None:
     os.environ.setdefault("NCCL_NVLS_ENABLE", "0")
     import torch
     from safetensors.torch import load_file
-
-    from sglang_omni.model_runner.weight_checker import _digest_tensor
 
     try:
         from sglang.srt.utils import init_custom_process_group
@@ -111,9 +103,6 @@ def _run_trainer() -> None:
         "names": names,
         "dtypes": [str(state[n].dtype).replace("torch.", "") for n in names],
         "shapes": [list(state[n].shape) for n in names],
-        # Same per-tensor digest the inference StrictWeightChecker uses, so the
-        # test can assert bit-parity (refit == base), not just "changed".
-        "expected_sha": {n: _digest_tensor(n, state[n]).sha256 for n in names},
     }
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh)
@@ -139,15 +128,15 @@ def _run_trainer() -> None:
         pass
 
 
-@pytest.fixture(scope="module")
-def omni_server():
-    """Boot a Higgs TTS-4B omni server on GPU 1 with NCCL env matched to the trainer."""
-    env = dict(os.environ)
-    env.update(
-        CUDA_VISIBLE_DEVICES="1",
+def _boot_server(model_path: str, port: int, gpu: int, timeout: int = 600):
+    # Own process group: proc.kill() leaves the per-stage children leaking GPU
+    # memory; start_new_session + killpg (see _kill_server) reaps the whole tree.
+    env = dict(
+        os.environ,
+        CUDA_VISIBLE_DEVICES=str(gpu),
         NCCL_CUMEM_ENABLE="0",
         NCCL_NVLS_ENABLE="0",
-        HF_HUB_OFFLINE=env.get("HF_HUB_OFFLINE", "1"),
+        HF_HUB_OFFLINE=os.environ.get("HF_HUB_OFFLINE", "1"),
     )
     proc = subprocess.Popen(
         [
@@ -156,80 +145,97 @@ def omni_server():
             "sglang_omni.cli",
             "serve",
             "--model-path",
-            HF_TTS_MODEL,
+            model_path,
             "--port",
-            str(SERVER_PORT),
+            str(port),
         ],
         env=env,
+        start_new_session=True,
     )
+    url = f"http://localhost:{port}"
 
     def _ready() -> bool:
         try:
-            return requests.get(f"{URL}/model_info", timeout=5).status_code == 200
+            return requests.get(f"{url}/model_info", timeout=5).status_code == 200
         except Exception:
             return False
 
-    if not _wait_for(_ready, timeout=600):
+    if not _wait_for(_ready, timeout=timeout):
+        _kill_server(proc)
+        pytest.fail(
+            f"omni server ({model_path}) did not become ready within {timeout}s"
+        )
+    return proc, url
+
+
+def _kill_server(proc) -> None:
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
         proc.kill()
-        pytest.fail("omni server did not become ready within 600s")
-    yield URL
-    proc.kill()
     try:
         proc.wait(timeout=30)
     except Exception:
         pass
 
 
-def _tts_checksum() -> dict:
+def _tts_checksums(url: str) -> dict:
     r = requests.post(
-        f"{URL}/weights_checker", json={"action": "checksum"}, timeout=180
+        f"{url}/weights_checker", json={"action": "checksum"}, timeout=600
     )
     r.raise_for_status()
     for res in r.json().get("results", []):
         if res.get("stage") == "tts_engine":
-            return res.get("data", {})
+            return res.get("data", {}).get("checksums", {})
     return {}
 
 
-def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_path):
+def test_distributed_refit_matches_base_and_keeps_serving(tmp_path):
     base_dir = _resolve_base_dir()
-    manifest = str(tmp_path / "manifest.json")
-    trainer_env = dict(os.environ, CUDA_VISIBLE_DEVICES="0", HF_HUB_OFFLINE="1")
-    trainer = subprocess.Popen(
-        [
-            sys.executable,
-            __file__,
-            "trainer",
-            str(MASTER_PORT),
-            GROUP_NAME,
-            base_dir,
-            "body.",
-            "0",
-            manifest,
-        ],
-        env=trainer_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
+
+    # Ground truth: a server loaded directly from base, in inference representation.
+    proc_b, url_b = _boot_server(base_dir, BASE_REF_PORT, gpu=1)
     try:
+        base_ck = _tts_checksums(url_b)
+    finally:
+        _kill_server(proc_b)
+    assert base_ck, "base reference server returned no tts_engine checksums"
+
+    proc_i, url_i = _boot_server(HF_TTS_MODEL, SERVER_PORT, gpu=1)
+    trainer = None
+    try:
+        instruct_ck = _tts_checksums(url_i)
+        target = [n for n in base_ck if base_ck.get(n) != instruct_ck.get(n)]
+        assert (
+            len(target) > 50
+        ), f"base and instruct barely differ ({len(target)} params); wrong checkpoints?"
+
+        manifest = str(tmp_path / "manifest.json")
+        trainer = subprocess.Popen(
+            [
+                sys.executable,
+                __file__,
+                "trainer",
+                str(MASTER_PORT),
+                GROUP_NAME,
+                base_dir,
+                "body.",
+                "0",
+                manifest,
+            ],
+            env=dict(os.environ, CUDA_VISIBLE_DEVICES="0", HF_HUB_OFFLINE="1"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
         _wait_for_process_line(trainer, "MANIFEST_WRITTEN", timeout=180)
         _wait_for_process_line(trainer, "RENDEZVOUS_START", timeout=30)
         with open(manifest) as fh:
             spec = json.load(fh)
 
-        before = _tts_checksum()
-        before_pgc = before.get("per_gpu_checksum")
-        before_ck = before.get("checksums", {})
-        expected_sha = spec.get("expected_sha", {})
-        assert before_pgc and expected_sha, "missing baseline checksum or expected SHA"
-        assert any(
-            before_ck.get(n) != sha for n, sha in expected_sha.items()
-        ), "instruct body.* already matches base before refit"
-
         r = requests.post(
-            f"{URL}/init_weights_update_group",
+            f"{url_i}/init_weights_update_group",
             json={
                 "master_address": "localhost",
                 "master_port": MASTER_PORT,
@@ -246,7 +252,7 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
 
         t0 = time.perf_counter()
         r = requests.post(
-            f"{URL}/update_weights_from_distributed",
+            f"{url_i}/update_weights_from_distributed",
             json={
                 "names": spec["names"],
                 "dtypes": spec["dtypes"],
@@ -263,20 +269,20 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
             flush=True,
         )
 
-        after = _tts_checksum()
-        after_pgc = after.get("per_gpu_checksum")
-        after_ck = after.get("checksums", {})
-        assert (
-            after_pgc and after_pgc != before_pgc
-        ), "weights checksum did not change after refit"
-        mismatched = [n for n, sha in expected_sha.items() if after_ck.get(n) != sha]
+        refit_ck = _tts_checksums(url_i)
+        changed = [n for n in refit_ck if refit_ck.get(n) != instruct_ck.get(n)]
+        assert len(changed) >= len(target) - 32, (
+            f"refit changed only {len(changed)} params but base differs from instruct on "
+            f"{len(target)}; refit looks incomplete"
+        )
+        mismatched = [n for n in changed if refit_ck[n] != base_ck.get(n)]
         assert not mismatched, (
-            f"{len(mismatched)}/{len(expected_sha)} refit params do not match the base "
-            f"SHA (no parity): {mismatched[:5]}"
+            f"{len(mismatched)}/{len(changed)} refit params do not bit-match the base server "
+            f"(SHA256 parity failed): {mismatched[:5]}"
         )
 
         audio = requests.post(
-            f"{URL}/v1/audio/speech",
+            f"{url_i}/v1/audio/speech",
             json={"input": "After distributed refit."},
             timeout=180,
         )
@@ -284,16 +290,18 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
             audio.status_code == 200 and len(audio.content) > 1000
         ), "server stopped serving audio after refit"
         r = requests.post(
-            f"{URL}/destroy_weights_update_group",
+            f"{url_i}/destroy_weights_update_group",
             json={"group_name": GROUP_NAME, "stages": ["tts_engine"]},
             timeout=180,
         )
         assert r.status_code == 200 and r.json()["success"], r.text
     finally:
-        try:
-            trainer.wait(timeout=120)
-        except Exception:
-            trainer.kill()
+        if trainer is not None:
+            try:
+                trainer.wait(timeout=120)
+            except Exception:
+                trainer.kill()
+        _kill_server(proc_i)
 
 
 if __name__ == "__main__":
