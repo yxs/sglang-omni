@@ -434,6 +434,19 @@ async def _broadcast_admin_request(
     if not target_workers:
         return _error_response(503, "no live upstream workers")
 
+    # Distributed-init assigns each worker an NCCL rank from a single shared
+    # rank_offset (sglang: rank = rank_offset + tp_rank). Broadcasting the same
+    # body to multiple replicas makes them join with colliding ranks and hang the
+    # rendezvous. Reject until the trainer assigns a distinct rank_offset per
+    # replica (genuine multi-replica support is a larger design).
+    if path == "/init_weights_update_group" and len(target_workers) > 1:
+        return _error_response(
+            422,
+            "distributed weight-update init currently supports a single-replica "
+            f"target stage, but {len(target_workers)} live workers were targeted; "
+            "multi-replica refit needs a distinct rank_offset per replica.",
+        )
+
     if path in _ADMIN_UPDATE_PATHS:
         try:
             await asyncio.wait_for(

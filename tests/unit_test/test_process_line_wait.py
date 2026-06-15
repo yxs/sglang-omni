@@ -4,7 +4,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from tests.test_model.test_rl_distributed_weight_update import _wait_for_process_line
+from tests._util.process import _wait_for_process_line
 
 
 def test_wait_for_process_line_keeps_prefetched_stdout_lines():

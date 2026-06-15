@@ -1811,17 +1811,6 @@ def test_router_unimplemented_tensor_weight_update_returns_501() -> None:
             "/update_weights_from_distributed",
             {"names": ["w.0"], "dtypes": ["bfloat16"], "shapes": [[2, 2]]},
         ),
-        (
-            "/init_weights_update_group",
-            {
-                "master_address": "localhost",
-                "master_port": 12355,
-                "world_size": 2,
-                "rank_offset": 1,
-                "group_name": "weight_update_group",
-                "backend": "nccl",
-            },
-        ),
         ("/destroy_weights_update_group", {"group_name": "weight_update_group"}),
     ],
 )
@@ -1834,6 +1823,45 @@ def test_router_distributed_weight_update_routes_broadcast(
         resp = client.post(path, json=payload)
     assert resp.status_code == 200
     assert resp.json()["success"] is True
+
+
+_INIT_GROUP_PAYLOAD = {
+    "master_address": "localhost",
+    "master_port": 12355,
+    "world_size": 2,
+    "rank_offset": 1,
+    "group_name": "weight_update_group",
+    "backend": "nccl",
+}
+
+
+def test_router_init_weights_update_group_single_replica_broadcasts() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "healthy"}, request=request)
+        return httpx.Response(
+            200, json={"success": True, "message": "ok", "results": []}, request=request
+        )
+
+    async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = create_app(
+        _router_config(worker_configs=[WorkerConfig(url="http://worker-a:8101")]),
+        client=async_client,
+    )
+    with TestClient(app) as client:
+        resp = client.post("/init_weights_update_group", json=_INIT_GROUP_PAYLOAD)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+def test_router_init_weights_update_group_rejects_multiple_replicas() -> None:
+    # _admin_router_app targets 2 live workers; a single rank_offset can't be
+    # broadcast to multiple replicas without NCCL rank collisions.
+    app = _admin_router_app()
+    with TestClient(app) as client:
+        resp = client.post("/init_weights_update_group", json=_INIT_GROUP_PAYLOAD)
+    assert resp.status_code == 422
+    assert "single-replica" in resp.json()["error"]["message"]
 
 
 # ---------------------------------------------------------------------------

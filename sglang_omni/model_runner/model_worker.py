@@ -316,12 +316,12 @@ class ModelWorker:
         shapes = payload.get("shapes")
         if names is None or dtypes is None or shapes is None:
             return False, "names, dtypes and shapes are required"
-        try:
-            name_count = len(names)
-            dtype_count = len(dtypes)
-            shape_count = len(shapes)
-        except TypeError:
-            return False, "names, dtypes and shapes must be sized sequences"
+        # Pydantic already guards type/None at the HTTP boundary; this length
+        # check is the one guard that matters — sglang zips names/dtypes/shapes
+        # and silently truncates to the shortest, under-broadcasting weights.
+        name_count = len(names)
+        dtype_count = len(dtypes)
+        shape_count = len(shapes)
         if name_count == 0 or dtype_count == 0 or shape_count == 0:
             return False, "names, dtypes and shapes must be non-empty"
         if name_count != dtype_count or name_count != shape_count:

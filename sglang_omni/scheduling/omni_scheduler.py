@@ -1068,8 +1068,7 @@ class OmniScheduler:
                     if active_request_ids and not self._can_update_active_requests(
                         previous_pause_state
                     ):
-                        if not keep_pause:
-                            self._engine_paused = previous_pause_state
+                        # _engine_paused is restored by the finally below.
                         return {
                             "success": False,
                             "message": (
@@ -1163,6 +1162,13 @@ class OmniScheduler:
                 "message": "stage does not support init_weights_update_group",
                 "data": {"skipped": True, "unsupported": True},
             }
+        # NOTE: init blocks on a NCCL/TCP rendezvous and runs on the scheduler
+        # serving thread (admin is drained inline in the event loop), so the
+        # serving loop is frozen until the trainer (rank 0) joins. sglang's
+        # init_weights_update_group exposes no timeout, so a missing trainer
+        # stalls inference up to NCCL's own timeout. Call this only in
+        # coordination with the trainer (the router takes the worker out of
+        # routing for the duration).
         with self._admin_lock:
             success, message = self.model_worker.init_weights_update_group(payload)
         return {

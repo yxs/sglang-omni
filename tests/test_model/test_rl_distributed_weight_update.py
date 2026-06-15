@@ -17,7 +17,9 @@ Requires 2 GPUs + the Higgs TTS-4B (instruct) and 4B-base checkpoints in the HF
 cache. Skipped otherwise (e.g. in CPU/1-GPU CI).
 
 Validated on 2xH100 (sglang 0.5.8): update success, checksum changed, audio served,
-latency ~0.58s for all 397 body params.
+latency ~0.58s for all 397 body params. The sglang ``init_weights_update_group`` /
+``update_weights_from_distributed`` signatures are compatible across 0.5.8 and the
+pinned ``sglang==0.5.12.post1`` (``load_format`` present in both).
 
 Run manually on a 2-GPU box::
 
@@ -29,14 +31,14 @@ from __future__ import annotations
 import glob
 import json
 import os
-import queue
 import subprocess
 import sys
-import threading
 import time
 
 import pytest
 import requests
+
+from tests._util.process import _wait_for, _wait_for_process_line
 
 HF_TTS_MODEL = "bosonai/higgs-audio-v3-tts-4b"
 BASE_CACHE_DIRNAME = "models--boson-sglang--higgs-audio-v3-generation-4B-base"
@@ -132,59 +134,8 @@ def _run_trainer() -> None:
         pass
 
 
-# --------------------------------------------------------------------------- #
-# Test fixtures / helpers
-# --------------------------------------------------------------------------- #
-def _wait_for(predicate, timeout: float, interval: float = 2.0) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if predicate():
-            return True
-        time.sleep(interval)
-    return False
-
-
-def _wait_for_process_line(
-    proc: subprocess.Popen,
-    marker: str,
-    timeout: float,
-) -> str:
-    assert proc.stdout is not None
-    line_queue = getattr(proc, "_omni_stdout_line_queue", None)
-    if line_queue is None:
-        line_queue = queue.Queue()
-
-        def _read_stdout() -> None:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                line_queue.put(line)
-            line_queue.put(None)
-
-        threading.Thread(target=_read_stdout, daemon=True).start()
-        setattr(proc, "_omni_stdout_line_queue", line_queue)
-
-    deadline = time.time() + timeout
-    output: list[str] = []
-    while time.time() < deadline:
-        remaining = max(0.0, deadline - time.time())
-        try:
-            line = line_queue.get(timeout=min(0.2, remaining))
-        except queue.Empty:
-            if proc.poll() is not None:
-                raise AssertionError(
-                    f"trainer exited with {proc.returncode} while waiting for {marker}: "
-                    + "".join(output)
-                )
-            continue
-        if line is None:
-            raise AssertionError(
-                f"trainer exited with {proc.returncode} while waiting for {marker}: "
-                + "".join(output)
-            )
-        output.append(line)
-        if marker in line:
-            return line
-    raise AssertionError(f"timed out waiting for trainer marker {marker}")
+# Process-line wait helpers (_wait_for / _wait_for_process_line) live in
+# tests/_util/process.py, shared with the lightweight unit test.
 
 
 @pytest.fixture(scope="module")
