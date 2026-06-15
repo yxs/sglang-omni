@@ -30,6 +30,7 @@ from sglang_omni.models.qwen3_omni.config import (
 from sglang_omni.models.qwen3_omni.merge import decode_events, merge_for_thinker
 from sglang_omni.models.qwen3_omni.payload_types import Qwen3OmniPipelineState
 from sglang_omni.models.qwen3_omni.request_builders import (
+    apply_thinker_result,
     build_sglang_thinker_request,
     project_preprocessing_to_mm_aggregate,
     project_talker_to_code2wav,
@@ -212,6 +213,21 @@ def test_qwen_thinker_to_decode_projection_isolates_stream_state() -> None:
     assert projected.data["stream_state"] == stream_state
     assert projected.data["stream_state"] is not stream_state
     assert projected.data["stream_state"]["token_ids"] is not stream_state["token_ids"]
+
+
+def test_qwen_apply_thinker_result_preserves_empty_logprob_list() -> None:
+    state = Qwen3OmniPipelineState()
+    result = SimpleNamespace(
+        output_ids=[],
+        extra_model_outputs={},
+        output_token_logprobs=[],
+    )
+
+    thinker_out = apply_thinker_result(state, stage_name="thinker", result=result)
+
+    assert thinker_out["output_token_logprobs"] == []
+    assert state.thinker_out["output_token_logprobs"] == []
+    assert state.engine_outputs["thinker"]["output_token_logprobs"] == []
 
 
 def test_qwen_talker_to_code2wav_projection_keeps_only_request_latch() -> None:

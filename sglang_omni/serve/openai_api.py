@@ -805,7 +805,9 @@ def _build_rollout_generate_request(req: RolloutGenerateRequest) -> GenerateRequ
         extra_params=extra_params,
         stream=req.stream,
         max_tokens=sampling.max_new_tokens,
-        output_modalities=req.output_modalities,
+        output_modalities=(
+            req.output_modalities if req.output_modalities is not None else ["text"]
+        ),
         metadata=dict(req.metadata) if req.metadata else {},
     )
 
@@ -839,7 +841,9 @@ def _build_generate_response(
         completion_tokens=completion_tokens,
         weight_version=result.weight_version or "",
         request_metadata=req.metadata,
-        output_token_logprobs=result.output_token_logprobs,
+        output_token_logprobs=(
+            result.output_token_logprobs if req.return_logprob else None
+        ),
         omni_rollout=result.omni_rollout if req.return_omni_rollout else None,
     )
     return GenerateResponse(text=result.text, audio=audio, meta_info=meta_info)

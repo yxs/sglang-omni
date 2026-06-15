@@ -802,7 +802,7 @@ def apply_thinker_result(
         thinker_out["weight_version"] = weight_version
 
     output_token_logprobs = getattr(result, "output_token_logprobs", None)
-    if output_token_logprobs:
+    if output_token_logprobs is not None:
         thinker_out["output_token_logprobs"] = output_token_logprobs
 
     state.thinker_out = thinker_out
