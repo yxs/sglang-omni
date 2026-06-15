@@ -1068,6 +1068,11 @@ class OmniScheduler:
                     if active_request_ids and not self._can_update_active_requests(
                         previous_pause_state
                     ):
+                        # Restore before building the response so the reported
+                        # engine_paused matches the post-call state (finally also
+                        # restores, but after this dict is built).
+                        if not keep_pause:
+                            self._engine_paused = previous_pause_state
                         return {
                             "success": False,
                             "message": (

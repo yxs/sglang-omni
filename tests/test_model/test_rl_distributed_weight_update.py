@@ -6,8 +6,9 @@ adapted to the SGLang-Omni multi-stage pipeline. A rank-0 "trainer" process
 broadcasts base-model weights over a NCCL process group; the omni ``tts_engine``
 stage receives them through the admin control plane
 (``/init_weights_update_group`` + ``/update_weights_from_distributed``). The test
-asserts the SHA256 weights checksum changes (the refit actually happened) and the
-server still serves audio afterwards, and prints the refit latency.
+asserts every broadcast ``body.*`` param bit-matches the base weights after refit
+(per-tensor SHA256 parity, not merely "changed"), the server still serves audio,
+and prints the refit latency.
 
 Only the non-tied ``body.*`` transformer params are broadcast: tied audio-codebook
 weights require trainer-side ``convert_to_hf`` mapping, which is the training side's
@@ -42,6 +43,7 @@ from tests._util.process import _wait_for, _wait_for_process_line
 
 HF_TTS_MODEL = "bosonai/higgs-audio-v3-tts-4b"
 BASE_CACHE_DIRNAME = "models--boson-sglang--higgs-audio-v3-generation-4B-base"
+INSTRUCT_CACHE_DIRNAME = "models--bosonai--higgs-audio-v3-tts-4b"
 SERVER_PORT = int(os.environ.get("OMNI_E2E_PORT", "8200"))
 MASTER_PORT = int(os.environ.get("OMNI_E2E_MASTER_PORT", "29570"))
 GROUP_NAME = "rl_e2e_weight_update_group"
@@ -54,14 +56,17 @@ def _hf_hub_root() -> str:
     )
 
 
-def _resolve_base_dir() -> str | None:
-    snaps = glob.glob(
-        os.path.join(_hf_hub_root(), BASE_CACHE_DIRNAME, "snapshots", "*")
-    )
-    for snap in snaps:
+def _resolve_snapshot(cache_dirname: str) -> str | None:
+    for snap in glob.glob(
+        os.path.join(_hf_hub_root(), cache_dirname, "snapshots", "*")
+    ):
         if glob.glob(os.path.join(snap, "*.safetensors")):
             return snap
     return None
+
+
+def _resolve_base_dir() -> str | None:
+    return _resolve_snapshot(BASE_CACHE_DIRNAME)
 
 
 def _two_gpus() -> bool:
@@ -85,6 +90,8 @@ def _run_trainer() -> None:
     import torch
     from safetensors.torch import load_file
 
+    from sglang_omni.model_runner.weight_checker import _digest_tensor
+
     try:
         from sglang.srt.utils import init_custom_process_group
     except Exception:
@@ -104,6 +111,9 @@ def _run_trainer() -> None:
         "names": names,
         "dtypes": [str(state[n].dtype).replace("torch.", "") for n in names],
         "shapes": [list(state[n].shape) for n in names],
+        # Same per-tensor digest the inference StrictWeightChecker uses, so the
+        # test can assert bit-parity (refit == base), not just "changed".
+        "expected_sha": {n: _digest_tensor(n, state[n]).sha256 for n in names},
     }
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh)
@@ -209,8 +219,14 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
         with open(manifest) as fh:
             spec = json.load(fh)
 
-        before = _tts_checksum().get("per_gpu_checksum")
-        assert before, "no baseline checksum from tts_engine stage"
+        before = _tts_checksum()
+        before_pgc = before.get("per_gpu_checksum")
+        before_ck = before.get("checksums", {})
+        expected_sha = spec.get("expected_sha", {})
+        assert before_pgc and expected_sha, "missing baseline checksum or expected SHA"
+        assert any(
+            before_ck.get(n) != sha for n, sha in expected_sha.items()
+        ), "instruct body.* already matches base before refit"
 
         r = requests.post(
             f"{URL}/init_weights_update_group",
@@ -247,8 +263,17 @@ def test_distributed_refit_changes_weights_and_keeps_serving(omni_server, tmp_pa
             flush=True,
         )
 
-        after = _tts_checksum().get("per_gpu_checksum")
-        assert after and after != before, "weights checksum did not change after refit"
+        after = _tts_checksum()
+        after_pgc = after.get("per_gpu_checksum")
+        after_ck = after.get("checksums", {})
+        assert (
+            after_pgc and after_pgc != before_pgc
+        ), "weights checksum did not change after refit"
+        mismatched = [n for n, sha in expected_sha.items() if after_ck.get(n) != sha]
+        assert not mismatched, (
+            f"{len(mismatched)}/{len(expected_sha)} refit params do not match the base "
+            f"SHA (no parity): {mismatched[:5]}"
+        )
 
         audio = requests.post(
             f"{URL}/v1/audio/speech",

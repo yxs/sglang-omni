@@ -144,6 +144,8 @@ def test_omni_scheduler_update_weights_rejects_active_requests_by_default() -> N
     assert "active requests are present" in result["message"]
     assert result["data"]["active_request_count"] == 1
     assert scheduler._engine_paused is False
+    # reported engine_paused must match the restored state, not the transient True
+    assert result["data"]["engine_paused"] is False
     assert update_calls == []
 
 
@@ -300,6 +302,8 @@ def test_omni_scheduler_distributed_update_rejects_active_requests_by_default() 
     assert "active requests are present" in result["message"]
     assert result["data"]["active_request_count"] == 1
     assert scheduler._engine_paused is False
+    # reported engine_paused must match the restored state, not the transient True
+    assert result["data"]["engine_paused"] is False
     assert update_calls == []
 
 
