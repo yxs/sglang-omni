@@ -229,6 +229,30 @@ class Qwen3OmniPreprocessor:
             )
         return result
 
+    def _finalize_state(
+        self,
+        payload: StagePayload,
+        *,
+        input_ids: "torch.Tensor",
+        attention_mask: "torch.Tensor",
+        prompt_text: str,
+        full_mm_inputs: dict[str, Any],
+        encoder_inputs: dict[str, dict[str, Any]],
+    ) -> StagePayload:
+        """Assemble the thinker-ready pipeline state (single source of shape)."""
+        state = Qwen3OmniPipelineState(
+            mm_inputs=build_lightweight_mm_inputs(full_mm_inputs),
+            prompt={
+                "prompt_text": prompt_text,
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            },
+            encoder_inputs=encoder_inputs,
+            stream_state={"token_ids": [], "text": ""},
+        )
+        payload.data = state.to_dict()
+        return payload
+
     def _preprocess_pretokenized(
         self, payload: StagePayload, token_ids: list[int]
     ) -> StagePayload:
@@ -248,21 +272,17 @@ class Qwen3OmniPreprocessor:
             ),
             request_id=payload.request_id,
         )
-        state = Qwen3OmniPipelineState(
-            mm_inputs=build_lightweight_mm_inputs({}),
-            prompt={
-                "prompt_text": "",
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-            },
+        return self._finalize_state(
+            payload,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            prompt_text="",
+            full_mm_inputs={},
             encoder_inputs={
                 "image_encoder": {"_skip": True, "_result": {}},
                 "audio_encoder": {"_skip": True, "_result": {}},
             },
-            stream_state={"token_ids": [], "text": ""},
         )
-        payload.data = state.to_dict()
-        return payload
 
     async def _call_impl(self, payload: StagePayload) -> StagePayload:
         inputs = payload.request.inputs
@@ -542,15 +562,11 @@ class Qwen3OmniPreprocessor:
         else:
             encoder_inputs["audio_encoder"] = {"_skip": True, "_result": {}}
 
-        state = Qwen3OmniPipelineState(
-            mm_inputs=build_lightweight_mm_inputs(full_mm_inputs),
-            prompt={
-                "prompt_text": prompt_text,
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-            },
+        return self._finalize_state(
+            payload,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            prompt_text=prompt_text,
+            full_mm_inputs=full_mm_inputs,
             encoder_inputs=encoder_inputs,
-            stream_state={"token_ids": [], "text": ""},
         )
-        payload.data = state.to_dict()
-        return payload
