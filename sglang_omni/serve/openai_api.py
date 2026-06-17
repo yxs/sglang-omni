@@ -1338,11 +1338,9 @@ async def _wait_for_request_disconnect(request: Request) -> None:
 
 
 async def _close_async_iterator_if_supported(stream: AsyncIterator[Any]) -> None:
-    try:
-        close = stream.aclose
-    except AttributeError:
-        return
-    await close()
+    close = getattr(stream, "aclose", None)
+    if close is not None:
+        await close()
 
 
 async def _abort_and_close_speech_stream(

@@ -84,19 +84,12 @@ def sampled_logprobs_to_list(next_token_logprobs: Any) -> list[float] | None:
 
     if next_token_logprobs is None:
         return None
-    try:
-        detach = next_token_logprobs.detach
-    except AttributeError:
-        detach = None
-    if detach is not None:
-        values = detach().float().cpu().tolist()
+    if hasattr(next_token_logprobs, "detach"):
+        values = next_token_logprobs.detach().float().cpu().tolist()
+    elif hasattr(next_token_logprobs, "tolist"):
+        values = next_token_logprobs.tolist()
     else:
-        try:
-            tolist = next_token_logprobs.tolist
-        except AttributeError:
-            values = next_token_logprobs
-        else:
-            values = tolist()
+        values = next_token_logprobs
     if isinstance(values, (int, float)):
         return [float(values)]
     if not isinstance(values, (list, tuple)):

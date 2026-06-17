@@ -210,7 +210,8 @@ class ModelRunner:
         skip_rids = {
             req.request_id
             for req in pending.scheduler_output.requests
-            if req.data.req.finished() or self._req_is_retracted(req.data.req)
+            if req.data.req.finished()
+            or bool(getattr(req.data.req, "is_retracted", False))
         }
         self.post_decode_resolve(
             pending.launch_buf,
@@ -545,28 +546,21 @@ class ModelRunner:
     ) -> Any:
         self._apply_repetition_penalty(logits_output, requests)
         self._apply_codec_suppress_tokens(logits_output, requests)
-        return_logprob_flags = []
-        for sr in requests:
-            try:
-                return_logprob_flags.append(bool(sr.data.return_logprob))
-            except AttributeError as exc:
-                raise AssertionError(
-                    "scheduler request data must define return_logprob"
-                ) from exc
-        wants_rollout_logprob = any(return_logprob_flags)
+        wants_rollout_logprob = any(
+            getattr(sr.data, "return_logprob", False) for sr in requests
+        )
         if wants_rollout_logprob:
             self._enable_sampler_logprobs(forward_batch, len(requests))
         next_token_ids = self.tp_worker.model_runner.sample(
             logits_output, forward_batch
         )
         if wants_rollout_logprob:
-            try:
-                next_token_logprobs = logits_output.next_token_logprobs
-            except AttributeError as exc:
+            next_token_logprobs = getattr(logits_output, "next_token_logprobs", None)
+            if next_token_logprobs is None:
                 raise RuntimeError(
                     "Sampler did not populate next_token_logprobs when "
                     "return_logprob is enabled"
-                ) from exc
+                )
             self._record_rollout_logprobs(
                 next_token_logprobs,
                 next_token_ids,
@@ -577,17 +571,9 @@ class ModelRunner:
     @staticmethod
     def _enable_sampler_logprobs(forward_batch: Any, batch_size: int) -> None:
         forward_batch.return_logprob = True
-        try:
-            top_logprobs_nums = forward_batch.top_logprobs_nums
-        except AttributeError:
-            top_logprobs_nums = None
-        if top_logprobs_nums is None:
+        if getattr(forward_batch, "top_logprobs_nums", None) is None:
             forward_batch.top_logprobs_nums = [0] * batch_size
-        try:
-            token_ids_logprobs = forward_batch.token_ids_logprobs
-        except AttributeError:
-            token_ids_logprobs = None
-        if token_ids_logprobs is None:
+        if getattr(forward_batch, "token_ids_logprobs", None) is None:
             forward_batch.token_ids_logprobs = [None] * batch_size
 
     def _record_rollout_logprobs(
@@ -597,45 +583,23 @@ class ModelRunner:
         logprobs = sampled_logprobs_to_list(next_token_logprobs)
         if logprobs is None or next_token_ids is None:
             return
-        try:
+        if hasattr(next_token_ids, "tolist"):
             token_id_values = next_token_ids.tolist()
-        except AttributeError:
+        else:
             token_id_values = next_token_ids
         token_ids = [int(t) for t in token_id_values]
         if len(logprobs) != len(token_ids) or len(logprobs) != len(requests):
-            logger.warning(
-                "Skipping rollout logprob capture due to batch-size mismatch: "
-                "logprobs=%s token_ids=%s requests=%s",
-                len(logprobs),
-                len(token_ids),
-                len(requests),
+            raise RuntimeError(
+                "rollout logprob batch-size mismatch: "
+                f"logprobs={len(logprobs)} token_ids={len(token_ids)} "
+                f"requests={len(requests)}"
             )
-            return
         for row_idx, sched_req in enumerate(requests):
             data = sched_req.data
-            try:
-                return_logprob = data.return_logprob
-            except AttributeError as exc:
-                raise AssertionError(
-                    "scheduler request data must define return_logprob"
-                ) from exc
-            if return_logprob:
-                try:
-                    output_token_logprobs = data.output_token_logprobs
-                except AttributeError:
-                    output_token_logprobs = None
-                if output_token_logprobs is None:
-                    data.output_token_logprobs = []
+            if getattr(data, "return_logprob", False):
                 data.output_token_logprobs.append(
                     [logprobs[row_idx], token_ids[row_idx]]
                 )
-
-    @staticmethod
-    def _req_is_retracted(req: Any) -> bool:
-        try:
-            return bool(req.is_retracted)
-        except AttributeError:
-            return False
 
     def _apply_repetition_penalty(self, logits_output: Any, requests: list) -> None:
         logits = logits_output.next_token_logits
@@ -680,23 +644,10 @@ class ModelRunner:
         sup_toks: list[int] = []
         for row_idx, sched_req in enumerate(requests):
             data = sched_req.data
-            try:
-                suppress_tokens = data.suppress_tokens
-            except AttributeError as exc:
-                raise AssertionError(
-                    "scheduler request data must define suppress_tokens"
-                ) from exc
+            suppress_tokens = data.suppress_tokens
             if not suppress_tokens:
-                try:
-                    req = data.req
-                except AttributeError as exc:
-                    raise AssertionError(
-                        "scheduler request data must define req"
-                    ) from exc
-                try:
-                    suppress_tokens = req._codec_suppress_tokens
-                except AttributeError:
-                    suppress_tokens = None
+                req = data.req
+                suppress_tokens = getattr(req, "_codec_suppress_tokens", None)
             if not suppress_tokens:
                 continue
             for token_id in suppress_tokens:

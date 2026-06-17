@@ -48,14 +48,17 @@ def test_rollout_logprobs_align_per_request_at_batch_2() -> None:
     assert math.isclose(data1.output_token_logprobs[0][0], -1.5, abs_tol=1e-4)
 
 
-def test_rollout_logprobs_skips_on_batch_size_mismatch() -> None:
+def test_rollout_logprobs_raises_on_batch_size_mismatch() -> None:
     runner = object.__new__(ModelRunner)
     data = SimpleNamespace(return_logprob=True, output_token_logprobs=[])
 
-    # more logprobs than requests => batching assumption broke => skip, not take first N
-    runner._record_rollout_logprobs(
-        torch.tensor([-0.5, -1.5]), torch.tensor([11, 22]), [SimpleNamespace(data=data)]
-    )
+    # more logprobs than requests => batching assumption broke => fail loud
+    with pytest.raises(RuntimeError, match="batch-size mismatch"):
+        runner._record_rollout_logprobs(
+            torch.tensor([-0.5, -1.5]),
+            torch.tensor([11, 22]),
+            [SimpleNamespace(data=data)],
+        )
 
     assert data.output_token_logprobs == []
 
@@ -70,25 +73,15 @@ def test_enable_sampler_logprobs_initializes_missing_forward_batch_fields() -> N
     assert forward_batch.token_ids_logprobs == [None, None]
 
 
-def test_record_rollout_logprobs_initializes_missing_output_list() -> None:
+def test_record_rollout_logprobs_skips_without_return_flag() -> None:
     runner = object.__new__(ModelRunner)
-    data = SimpleNamespace(return_logprob=True)
+    data = SimpleNamespace(return_logprob=False, output_token_logprobs=[])
 
     runner._record_rollout_logprobs(
         torch.tensor([-0.25]), torch.tensor([33]), [SimpleNamespace(data=data)]
     )
 
-    assert data.output_token_logprobs == [[-0.25, 33]]
-
-
-def test_record_rollout_logprobs_requires_return_flag() -> None:
-    runner = object.__new__(ModelRunner)
-    data = SimpleNamespace(output_token_logprobs=[])
-
-    with pytest.raises(AssertionError, match="return_logprob"):
-        runner._record_rollout_logprobs(
-            torch.tensor([-0.25]), torch.tensor([33]), [SimpleNamespace(data=data)]
-        )
+    assert data.output_token_logprobs == []
 
 
 def test_sample_next_token_ids_requires_sampler_logprobs_when_requested() -> None:

@@ -49,12 +49,7 @@ def _resolve_seed(params: dict[str, Any]) -> int | None:
 
 
 def output_modalities(request: OmniRequest | None) -> set[str] | None:
-    if request is None:
-        return None
-    try:
-        metadata = request.metadata
-    except AttributeError as exc:
-        raise AssertionError("OmniRequest must define metadata") from exc
+    metadata = getattr(request, "metadata", None)
     if not isinstance(metadata, dict):
         return None
     modalities = metadata.get("output_modalities")
@@ -790,38 +785,23 @@ def apply_thinker_result(
     stage_name: str,
     result: Any,
 ) -> ThinkerOutput:
-    try:
-        output_ids = list(result.output_ids)
-        extra_model_outputs = result.extra_model_outputs
-    except AttributeError as exc:
-        raise AssertionError(
-            "thinker result must define output_ids and extra_model_outputs"
-        ) from exc
+    output_ids = list(result.output_ids)
     thinker_out: ThinkerOutput = {
         "output_ids": output_ids,
         "step": len(output_ids),
         "is_final": True,
-        "extra_model_outputs": dict(extra_model_outputs),
+        "extra_model_outputs": dict(result.extra_model_outputs),
     }
 
-    try:
-        finish_reason = result.finish_reason
-    except AttributeError:
-        finish_reason = None
+    finish_reason = getattr(result, "finish_reason", None)
     if finish_reason is not None:
         thinker_out["finish_reason"] = finish_reason
 
-    try:
-        weight_version = result.weight_version
-    except AttributeError:
-        weight_version = None
+    weight_version = getattr(result, "weight_version", None)
     if weight_version is not None:
         thinker_out["weight_version"] = weight_version
 
-    try:
-        output_token_logprobs = result.output_token_logprobs
-    except AttributeError:
-        output_token_logprobs = None
+    output_token_logprobs = getattr(result, "output_token_logprobs", None)
     if output_token_logprobs is not None:
         thinker_out["output_token_logprobs"] = output_token_logprobs
 
@@ -864,34 +844,22 @@ def make_thinker_stream_output_builder():
     def _build_stream_output(
         request_id: str, req_data: Any, req_output: Any
     ) -> list[OutgoingMessage]:
-        try:
-            req = req_data.req
-            stage_payload = req_data.stage_payload
-            output_data = req_output.data
-            extra = req_output.extra
-        except AttributeError as exc:
-            raise AssertionError(
-                "thinker stream builder inputs must define req, stage_payload, "
-                "data, and extra"
-            ) from exc
-        try:
-            is_chunked = req.is_chunked if req is not None else 0
-        except AttributeError:
-            is_chunked = 0
-        if req is not None and int(is_chunked or 0) > 0:
+        req = getattr(req_data, "req", None)
+        if req is not None and int(getattr(req, "is_chunked", 0) or 0) > 0:
             # While chunked prefill is still consuming prompt tokens, suppress
             # hidden-state streaming to the talker.
             # Emitting chunks this early lets prompt-side states masquerade as the
             # first assistant token and can leak the user/ref-text prompt into TTS.
             return []
-        if output_data is None:
+        if req_output.data is None:
             return []
 
-        token_id = int(output_data)
+        token_id = int(req_output.data)
         messages: list[OutgoingMessage] = []
 
         # Skip per-token decode emit when not streaming; talker_ar below stays
         # unconditional since talker generates audio either way.
+        stage_payload = req_data.stage_payload
         is_streaming = bool(
             stage_payload is not None
             and (stage_payload.request.params or {}).get("stream", False)
@@ -912,6 +880,7 @@ def make_thinker_stream_output_builder():
             return messages
 
         # Speech mode: also stream hidden states to the talker for codec gen.
+        extra = req_output.extra
         if isinstance(extra, dict) and "hidden_states" in extra:
             embed, layer_hidden = _split_dual_layer_hidden(extra["hidden_states"])
             if embed is not None:
@@ -1030,10 +999,7 @@ def make_talker_scheduler_adapters(
     )
 
     def _resolve_talker_sampling_config(params: dict[str, Any]) -> dict[str, Any]:
-        try:
-            codec_eos_id = int(model.config.codec_eos_token_id)
-        except AttributeError:
-            codec_eos_id = -1
+        codec_eos_id = int(getattr(model.config, "codec_eos_token_id", -1))
         suppress_tokens = [
             token_id
             for token_id in range(max(codec_vocab_size - 1024, 0), codec_vocab_size)

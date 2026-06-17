@@ -174,16 +174,10 @@ class Qwen3OmniPreprocessor:
             model_path=self.model_dir,
             fallback_model_paths=(QWEN3_OMNI_CHAT_TEMPLATE_FALLBACK_MODEL,),
         )
-        try:
-            processor_chat_template = self.processor.chat_template
-        except AttributeError:
-            processor_chat_template = None
-        try:
-            tokenizer_chat_template = self.tokenizer.chat_template
-        except AttributeError:
-            tokenizer_chat_template = None
-        if not processor_chat_template and tokenizer_chat_template:
-            self.processor.chat_template = tokenizer_chat_template
+        if not getattr(self.processor, "chat_template", None) and getattr(
+            self.tokenizer, "chat_template", None
+        ):
+            self.processor.chat_template = self.tokenizer.chat_template
 
     def _build_multimodal_messages(
         self,

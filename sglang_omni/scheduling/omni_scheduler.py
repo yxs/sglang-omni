@@ -131,10 +131,7 @@ class OmniScheduler:
         self.server_args = server_args
         self.model_config = model_config
         self.gpu_id = tp_worker.gpu_id
-        try:
-            self.tp_rank = tp_worker.tp_rank
-        except AttributeError:
-            self.tp_rank = 0
+        self.tp_rank = getattr(tp_worker, "tp_rank", 0)
         self.tp_size = server_args.tp_size
         self.pp_rank = 0
         self.pp_size = server_args.pp_size
@@ -344,22 +341,11 @@ class OmniScheduler:
         self._prefill_start_done: set[str] = set()
 
     def _init_upstream_compat_flags(self, server_args: Any) -> None:
-        try:
-            enable_hisparse = server_args.enable_hisparse
-        except AttributeError:
-            enable_hisparse = False
-        self.enable_hisparse = bool(enable_hisparse)
+        self.enable_hisparse = bool(getattr(server_args, "enable_hisparse", False))
         self.hisparse_coordinator = None
-        try:
-            enable_priority_scheduling = server_args.enable_priority_scheduling
-        except AttributeError:
-            enable_priority_scheduling = False
-        try:
-            disable_priority_preemption = server_args.disable_priority_preemption
-        except AttributeError:
-            disable_priority_preemption = False
         self.enable_priority_preemption = bool(
-            enable_priority_scheduling and not disable_priority_preemption
+            getattr(server_args, "enable_priority_scheduling", False)
+            and not getattr(server_args, "disable_priority_preemption", False)
         )
         # High-water mark, not a cap. Mirrors upstream Scheduler.__init__ (sglang/srt/managers/scheduler.py).
         self.max_prefill_bs = 0
@@ -408,24 +394,14 @@ class OmniScheduler:
             self.__dict__[name] = None
             return None
 
-        missing = object()
-        attr = missing
-        for cls in _Upstream.__mro__:
-            if name in cls.__dict__:
-                attr = cls.__dict__[name]
-                break
-        if attr is missing:
+        try:
+            attr = getattr(_Upstream, name)
+        except AttributeError:
             raise AttributeError(
                 f"'{type(self).__name__}' has no attribute {name!r}"
             ) from None
 
         # Bind unbound methods to this instance so they use our state
-        try:
-            descriptor_get = attr.__get__
-        except AttributeError:
-            descriptor_get = None
-        if descriptor_get is not None:
-            return descriptor_get(self, type(self))
         if callable(attr):
             return types.MethodType(attr, self)
         return attr
@@ -504,11 +480,7 @@ class OmniScheduler:
         for payload in recv_reqs:
             req_id = payload.request_id
             buffered_chunks = self._pending_stream_chunks.pop(req_id, [])
-            try:
-                prefetched_chunks = payload.prefetched_chunks
-            except AttributeError:
-                prefetched_chunks = []
-            existing_chunks = list(prefetched_chunks or [])
+            existing_chunks = list(getattr(payload, "prefetched_chunks", []) or [])
             if existing_chunks:
                 existing_chunks.extend(buffered_chunks)
                 payload.prefetched_chunks = existing_chunks
@@ -545,11 +517,7 @@ class OmniScheduler:
                 stage=None,
                 event_name="scheduler_request_build_end",
             )
-            try:
-                enforce_request_limits = req_data.enforce_request_limits
-            except AttributeError:
-                enforce_request_limits = False
-            if enforce_request_limits:
+            if bool(getattr(req_data, "enforce_request_limits", False)):
                 error_msg = self._prepare_request_limits(req_data)
                 if error_msg:
                     self._emit_request_error(req_id, ValueError(error_msg))
@@ -583,10 +551,8 @@ class OmniScheduler:
         )
         if error_msg:
             return error_msg
-        try:
+        if hasattr(req_data, "max_new_tokens"):
             req_data.max_new_tokens = int(req.sampling_params.max_new_tokens)
-        except AttributeError:
-            pass
         return None
 
     def _take_deferred_request_payloads(self) -> list[Any]:
@@ -616,17 +582,9 @@ class OmniScheduler:
         return True
 
     def _initialize_request_stream_state(self, req_data: Any, payload: Any) -> None:
-        try:
-            prefetched_chunks = payload.prefetched_chunks
-        except AttributeError:
-            prefetched_chunks = []
-        for chunk in prefetched_chunks or []:
+        for chunk in getattr(payload, "prefetched_chunks", []) or []:
             self._append_stream_chunk(req_data, chunk)
-        try:
-            prefetched_stream_done = payload.prefetched_stream_done
-        except AttributeError:
-            prefetched_stream_done = False
-        if prefetched_stream_done:
+        if bool(getattr(payload, "prefetched_stream_done", False)):
             self._mark_stream_done(req_data)
 
     def _request_kv_capacity_error(self, req: Any) -> str | None:
@@ -654,11 +612,7 @@ class OmniScheduler:
         )
 
     def _emit_request_error(self, request_id: str, error: Exception) -> None:
-        try:
-            is_entry_rank = self.is_entry_rank
-        except AttributeError:
-            is_entry_rank = True
-        if not is_entry_rank:
+        if not getattr(self, "is_entry_rank", True):
             return
         self.outbox.put(
             OutgoingMessage(
@@ -690,11 +644,7 @@ class OmniScheduler:
             # overrides run_batch, so without this forward_ct stays 0 and
             # SGLANG_TEST_RETRACT fires every step. Only the custom-runner path
             # needs it (the fallback reaches upstream run_batch, which counts).
-            try:
-                forward_ct = self.forward_ct
-            except AttributeError:
-                forward_ct = 0
-            self.forward_ct = forward_ct + 1
+            self.forward_ct = getattr(self, "forward_ct", 0) + 1
             sched_output = self._build_sched_output(batch)
             mr_output = self._model_runner.execute(sched_output)
             self._emit_stream_output(sched_output, mr_output)
@@ -762,11 +712,7 @@ class OmniScheduler:
         self._emit_prefill_start_for_batch(batch)
         # One forward per launch; mirror upstream run_batch's per-forward
         # counter (the matching resolve does no forward, so it must not count).
-        try:
-            forward_ct = self.forward_ct
-        except AttributeError:
-            forward_ct = 0
-        self.forward_ct = forward_ct + 1
+        self.forward_ct = getattr(self, "forward_ct", 0) + 1
         sched_output = self._build_sched_output(batch)
         pending_step = self._model_runner.execute_launch(sched_output)
         return sched_output, pending_step
@@ -803,23 +749,11 @@ class OmniScheduler:
     def _emit_prefill_start_for_batch(self, batch: Any) -> None:
         """Emit once when a request's first executable batch is selected."""
         metadata = {}
-        try:
-            metadata["is_prefill_only"] = bool(batch.is_prefill_only)
-        except AttributeError:
-            pass
-        try:
-            metadata["is_extend_in_batch"] = bool(batch.is_extend_in_batch)
-        except AttributeError:
-            pass
-        try:
-            batch_reqs = batch.reqs
-        except AttributeError as exc:
-            raise AssertionError("prefill-start batch must define reqs") from exc
-        for req in batch_reqs or []:
-            try:
-                rid = req.rid
-            except AttributeError as exc:
-                raise AssertionError("scheduled request must define rid") from exc
+        for attr in ("is_prefill_only", "is_extend_in_batch"):
+            if hasattr(batch, attr):
+                metadata[attr] = bool(getattr(batch, attr))
+        for req in getattr(batch, "reqs", []) or []:
+            rid = req.rid
             if rid in self._prefill_start_done:
                 continue
             self._prefill_start_done.add(rid)
@@ -838,35 +772,18 @@ class OmniScheduler:
         and put them in the outbox so Stage can route them downstream.
         """
         for req in reqs:
-            try:
-                finished = req.finished
-            except AttributeError as exc:
-                raise AssertionError("scheduled request must define finished") from exc
             if skip_req is not None and req is skip_req:
                 continue
-            if not finished():
+            if not req.finished():
                 continue
 
-            try:
-                rid = req.rid
-                data = req._omni_data
-                output_ids = req.output_ids
-            except AttributeError as exc:
-                raise AssertionError(
-                    "scheduled request must define rid, _omni_data, and output_ids"
-                ) from exc
+            rid = req.rid
 
             # Build result payload from the Req
-            data.output_ids = list(output_ids)
-            try:
-                weight_version = self.server_args.weight_version
-            except AttributeError:
-                weight_version = None
-            data.weight_version = weight_version
-            try:
-                finished_reason = req.finished_reason
-            except AttributeError:
-                finished_reason = None
+            data = req._omni_data
+            data.output_ids = list(req.output_ids)
+            data.weight_version = getattr(self.server_args, "weight_version", None)
+            finished_reason = req.finished_reason
             data.finish_reason = (
                 finished_reason.to_json().get("type")
                 if finished_reason is not None
@@ -925,11 +842,7 @@ class OmniScheduler:
         self._scheduler_thread_id = threading.get_ident()
         self._running = True
         try:
-            try:
-                enable_async_decode = self.enable_async_decode
-            except AttributeError:
-                enable_async_decode = False
-            if enable_async_decode:
+            if getattr(self, "enable_async_decode", False):
                 self._event_loop_async_decode()
             elif self.enable_overlap:
                 self._event_loop_overlap()
@@ -984,16 +897,9 @@ class OmniScheduler:
         return self._run_admin_action(action, payload)
 
     def _should_enqueue_admin(self) -> bool:
-        try:
-            scheduler_thread_id = self._scheduler_thread_id
-        except AttributeError:
-            scheduler_thread_id = None
-        try:
-            running = self._running
-        except AttributeError:
-            running = False
+        scheduler_thread_id = getattr(self, "_scheduler_thread_id", None)
         return (
-            bool(running)
+            bool(getattr(self, "_running", False))
             and scheduler_thread_id is not None
             and threading.get_ident() != scheduler_thread_id
         )
@@ -1063,44 +969,20 @@ class OmniScheduler:
 
     def _admin_model_info(self) -> dict[str, Any]:
         info = {}
-        try:
-            model_info = self.model_worker.model_info
-        except AttributeError:
-            model_info = None
-        if model_info is not None:
-            info.update(model_info())
-        try:
-            running_reqs = (
-                self.running_batch.reqs if self.running_batch is not None else []
-            )
-        except AttributeError:
-            running_reqs = []
-        try:
-            server_args = self.server_args
-        except AttributeError:
-            server_args = None
-        try:
-            model_path = server_args.model_path
-        except AttributeError:
-            model_path = None
-        try:
-            load_format = server_args.load_format
-        except AttributeError:
-            load_format = None
-        try:
-            weight_version = server_args.weight_version
-        except AttributeError:
-            weight_version = None
+        if hasattr(self.model_worker, "model_info"):
+            info.update(self.model_worker.model_info())
         info.update(
             {
                 "stage_tp_rank": self.tp_rank,
                 "stage_tp_size": self.tp_size,
                 "engine_paused": self._engine_paused,
                 "waiting_queue_size": len(self.waiting_queue),
-                "running_batch_size": len(running_reqs or []),
-                "model_path": model_path,
-                "load_format": load_format,
-                "weight_version": weight_version,
+                "running_batch_size": len(
+                    getattr(self.running_batch, "reqs", []) or []
+                ),
+                "model_path": getattr(self.server_args, "model_path", None),
+                "load_format": getattr(self.server_args, "load_format", None),
+                "weight_version": getattr(self.server_args, "weight_version", None),
             }
         )
         return {"success": True, "message": "ok", "data": info}
@@ -1149,9 +1031,7 @@ class OmniScheduler:
     def _admin_update_weights_from_disk(
         self, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        try:
-            update_weights_from_disk = self.model_worker.update_weights_from_disk
-        except AttributeError:
+        if not hasattr(self.model_worker, "update_weights_from_disk"):
             return {
                 "success": True,
                 "message": "stage does not support update_weights_from_disk",
@@ -1159,7 +1039,7 @@ class OmniScheduler:
             }
         return self._run_weight_update_with_lifecycle(
             payload,
-            update_weights_from_disk,
+            self.model_worker.update_weights_from_disk,
             {
                 "model_path": payload.get("model_path"),
                 "weight_version": payload.get("weight_version"),
@@ -1206,7 +1086,7 @@ class OmniScheduler:
                                 "active_request_count": len(active_request_ids),
                                 "active_request_ids": active_request_ids[:16],
                                 "abort_all_requests": abort_all_requests,
-                                "pause_mode": self._last_pause_mode,
+                                "pause_mode": getattr(self, "_last_pause_mode", None),
                                 "engine_paused": self._engine_paused,
                             },
                         }
@@ -1252,16 +1132,14 @@ class OmniScheduler:
     def _admin_update_weights_from_tensor(
         self, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        try:
-            update_weights_from_tensor = self.model_worker.update_weights_from_tensor
-        except AttributeError:
+        if not hasattr(self.model_worker, "update_weights_from_tensor"):
             return {
                 "success": True,
                 "message": "stage does not support update_weights_from_tensor",
                 "data": {"skipped": True, "unsupported": True},
             }
         with self._admin_lock:
-            success, message = update_weights_from_tensor(payload)
+            success, message = self.model_worker.update_weights_from_tensor(payload)
         return {
             "success": bool(success),
             "message": str(message),
@@ -1274,11 +1152,7 @@ class OmniScheduler:
     def _admin_update_weights_from_distributed(
         self, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        try:
-            update_weights_from_distributed = (
-                self.model_worker.update_weights_from_distributed
-            )
-        except AttributeError:
+        if not hasattr(self.model_worker, "update_weights_from_distributed"):
             return {
                 "success": True,
                 "message": "stage does not support update_weights_from_distributed",
@@ -1286,7 +1160,7 @@ class OmniScheduler:
             }
         return self._run_weight_update_with_lifecycle(
             payload,
-            update_weights_from_distributed,
+            self.model_worker.update_weights_from_distributed,
             {
                 "group_name": payload.get("group_name"),
                 "names": payload.get("names", []),
@@ -1297,9 +1171,7 @@ class OmniScheduler:
     def _admin_init_weights_update_group(
         self, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        try:
-            init_weights_update_group = self.model_worker.init_weights_update_group
-        except AttributeError:
+        if not hasattr(self.model_worker, "init_weights_update_group"):
             return {
                 "success": True,
                 "message": "stage does not support init_weights_update_group",
@@ -1313,7 +1185,7 @@ class OmniScheduler:
         # coordination with the trainer (the router takes the worker out of
         # routing for the duration).
         with self._admin_lock:
-            success, message = init_weights_update_group(payload)
+            success, message = self.model_worker.init_weights_update_group(payload)
         return {
             "success": bool(success),
             "message": str(message),
@@ -1328,18 +1200,14 @@ class OmniScheduler:
     def _admin_destroy_weights_update_group(
         self, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        try:
-            destroy_weights_update_group = (
-                self.model_worker.destroy_weights_update_group
-            )
-        except AttributeError:
+        if not hasattr(self.model_worker, "destroy_weights_update_group"):
             return {
                 "success": True,
                 "message": "stage does not support destroy_weights_update_group",
                 "data": {"skipped": True, "unsupported": True},
             }
         with self._admin_lock:
-            success, message = destroy_weights_update_group(payload)
+            success, message = self.model_worker.destroy_weights_update_group(payload)
         return {
             "success": bool(success),
             "message": str(message),
@@ -1348,9 +1216,7 @@ class OmniScheduler:
         }
 
     def _admin_weights_checker(self, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            weights_checker = self.model_worker.weights_checker
-        except AttributeError:
+        if not hasattr(self.model_worker, "weights_checker"):
             return {
                 "success": True,
                 "message": "stage does not support weights_checker",
@@ -1358,7 +1224,7 @@ class OmniScheduler:
             }
         action = str(payload.get("action") or "checksum")
         with self._admin_lock:
-            data = weights_checker(action)
+            data = self.model_worker.weights_checker(action)
         return {"success": True, "message": "ok", "data": data}
 
     def _abort_all_requests(self) -> int:
@@ -1370,10 +1236,9 @@ class OmniScheduler:
     def _active_request_ids(self) -> list[str]:
         request_ids: set[str] = set()
         for req in self.waiting_queue:
-            try:
-                request_ids.add(req.rid)
-            except AttributeError as exc:
-                raise AssertionError("waiting request must define rid") from exc
+            rid = getattr(req, "rid", None)
+            if rid is not None:
+                request_ids.add(rid)
         for batch in (
             self.running_batch,
             self.cur_batch,
@@ -1382,19 +1247,9 @@ class OmniScheduler:
         ):
             if batch is None:
                 continue
-            try:
-                batch_reqs = batch.reqs
-            except AttributeError as exc:
-                raise AssertionError("active batch must define reqs") from exc
-            for req in batch_reqs or []:
-                try:
-                    rid = req.rid
-                    finished = req.finished
-                except AttributeError as exc:
-                    raise AssertionError(
-                        "scheduled request must define rid and finished"
-                    ) from exc
-                if not finished():
+            for req in getattr(batch, "reqs", []) or []:
+                rid = getattr(req, "rid", None)
+                if rid is not None and not req.finished():
                     request_ids.add(rid)
         return sorted(request_ids)
 
@@ -1404,11 +1259,9 @@ class OmniScheduler:
         engine_paused = (
             self._engine_paused if previously_paused is None else previously_paused
         )
-        try:
-            last_pause_mode = self._last_pause_mode
-        except AttributeError:
-            last_pause_mode = None
-        return bool(engine_paused and last_pause_mode == "retract")
+        return bool(
+            engine_paused and getattr(self, "_last_pause_mode", None) == "retract"
+        )
 
     def _retract_running_requests(self) -> int:
         batch = self.running_batch
@@ -1418,10 +1271,7 @@ class OmniScheduler:
         if len(batch.reqs) == 0:
             return 0
         retracted_reqs = batch.retract_all(self.server_args)
-        try:
-            add_to_queue = self._add_request_to_queue
-        except AttributeError:
-            add_to_queue = None
+        add_to_queue = getattr(self, "_add_request_to_queue", None)
         for req in retracted_reqs:
             if callable(add_to_queue):
                 add_to_queue(req)
@@ -1439,10 +1289,7 @@ class OmniScheduler:
             return False
 
     def _resolve_pending_overlap_results(self) -> None:
-        try:
-            result_queue = self.result_queue
-        except AttributeError:
-            result_queue = None
+        result_queue = getattr(self, "result_queue", None)
         if result_queue is None:
             return
         while result_queue:
@@ -1576,35 +1423,23 @@ class OmniScheduler:
 
     @staticmethod
     def _batch_is_decode(batch) -> bool:
-        try:
-            mode = batch.forward_mode
-        except AttributeError:
-            mode = None
+        mode = getattr(batch, "forward_mode", None)
         if mode is None:
             return False
-        try:
-            is_decode = mode.is_decode
-        except AttributeError:
-            is_decode = None
+        is_decode = getattr(mode, "is_decode", None)
         if callable(is_decode):
             return bool(is_decode())
-        try:
-            is_extend = mode.is_extend
-        except AttributeError:
-            is_extend = None
+        is_extend = getattr(mode, "is_extend", None)
         return (not bool(is_extend())) if callable(is_extend) else False
 
     def _async_pending_batch(self):
         """The in-flight (launched, not yet resolved) decode batch, or None.
 
-        The explicit presence check keeps abort paths safe even for schedulers
+        ``getattr`` with default so abort paths stay safe even for schedulers
         built without going through ``__init__`` (e.g. unit-test fixtures).
         ``_async_pending`` is ``(batch, sched_output, pending_step)`` or None.
         """
-        try:
-            pending = self._async_pending
-        except AttributeError:
-            pending = None
+        pending = getattr(self, "_async_pending", None)
         return pending[0] if pending is not None else None
 
     def _resolve_and_process(self, batch, sched_output, pending_step) -> None:
@@ -1624,7 +1459,9 @@ class OmniScheduler:
         """
         # A request retracted at step S is still in step S+1's lagged batch;
         # drop it like a prior-step finish so its KV is not re-freed.
-        pre_finished = [r.finished() or self._req_is_retracted(r) for r in batch.reqs]
+        pre_finished = [
+            r.finished() or bool(getattr(r, "is_retracted", False)) for r in batch.reqs
+        ]
         # rids finished/retracted in a prior step (overrun): suppress their emit
         skip_rids = {batch.reqs[i].rid for i, was in enumerate(pre_finished) if was}
         result = self._run_batch_resolve(
@@ -1668,7 +1505,9 @@ class OmniScheduler:
         """
         if batch is None or not batch.reqs:
             return batch
-        drop = [r.finished() or self._req_is_retracted(r) for r in batch.reqs]
+        drop = [
+            r.finished() or bool(getattr(r, "is_retracted", False)) for r in batch.reqs
+        ]
         if not any(drop):
             return batch
         keep = [i for i, d in enumerate(drop) if not d]
@@ -1701,10 +1540,7 @@ class OmniScheduler:
 
             # Route through sync when the runner's collect has a sync-only
             # fallback (default True for runners not overriding lookahead_eligible).
-            try:
-                runner = self._model_runner
-            except AttributeError:
-                runner = None
+            runner = getattr(self, "_model_runner", None)
             use_lookahead = (
                 batch is not None
                 and len(batch.reqs) >= self.async_decode_min_batch_size
@@ -1773,20 +1609,9 @@ class OmniScheduler:
         for batch in (self.running_batch, self.cur_batch, self.last_batch):
             if batch is None:
                 continue
-            try:
-                batch_reqs = batch.reqs
-            except AttributeError as exc:
-                raise AssertionError("batch must define reqs") from exc
-            for req in batch_reqs:
-                try:
-                    rid = req.rid
-                    req_data = req._omni_data
-                except AttributeError as exc:
-                    raise AssertionError(
-                        "scheduled request must define rid and _omni_data"
-                    ) from exc
-                if rid == request_id:
-                    return req_data
+            for req in getattr(batch, "reqs", ()):
+                if req.rid == request_id:
+                    return req._omni_data
         for req in self.waiting_queue:
             if req.rid == request_id:
                 return req._omni_data
@@ -1794,21 +1619,11 @@ class OmniScheduler:
 
     @staticmethod
     def _append_stream_chunk_default(req_data: Any, chunk: Any) -> None:
-        try:
-            stream_chunks = req_data.stream_chunks
-        except AttributeError:
-            stream_chunks = None
+        stream_chunks = getattr(req_data, "stream_chunks", None)
         if stream_chunks is None:
             stream_chunks = deque()
             req_data.stream_chunks = stream_chunks
         stream_chunks.append(chunk)
-
-    @staticmethod
-    def _req_is_retracted(req: Any) -> bool:
-        try:
-            return bool(req.is_retracted)
-        except AttributeError:
-            return False
 
     def _append_stream_chunk(self, req_data: Any, chunk: Any) -> None:
         if self._stream_chunk_handler is None:
