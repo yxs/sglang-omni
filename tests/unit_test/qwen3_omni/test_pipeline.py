@@ -230,6 +230,36 @@ def test_qwen_apply_thinker_result_preserves_empty_logprob_list() -> None:
     assert state.engine_outputs["thinker"]["output_token_logprobs"] == []
 
 
+def test_qwen_preprocess_pretokenized_builds_thinker_state_from_ids() -> None:
+    # Miles RL rollout sends pre-tokenized input_ids; they must reach the thinker
+    # directly (no chat template / re-tokenize), with encoders skipped.
+    from sglang_omni.models.qwen3_omni.components.preprocessor import (
+        Qwen3OmniPreprocessor,
+        _is_pretokenized_prompt,
+    )
+
+    assert _is_pretokenized_prompt([5, 6, 7]) is True
+    assert _is_pretokenized_prompt([]) is False
+    assert _is_pretokenized_prompt([{"role": "user", "content": "hi"}]) is False
+    assert _is_pretokenized_prompt("hi") is False
+
+    pre = object.__new__(Qwen3OmniPreprocessor)
+    pre.max_seq_len = None
+    payload = SimpleNamespace(
+        request=SimpleNamespace(params={"max_new_tokens": 16}),
+        request_id="r1",
+        data=None,
+    )
+
+    out = pre._preprocess_pretokenized(payload, [5, 6, 7])
+
+    state = Qwen3OmniPipelineState.from_dict(out.data)
+    assert state.prompt["input_ids"].tolist() == [5, 6, 7]
+    assert state.prompt["attention_mask"].tolist() == [1, 1, 1]
+    assert state.encoder_inputs["image_encoder"]["_skip"] is True
+    assert state.encoder_inputs["audio_encoder"]["_skip"] is True
+
+
 def test_qwen_talker_to_code2wav_projection_keeps_only_request_latch() -> None:
     payload = StagePayload(
         request_id="req-1",
