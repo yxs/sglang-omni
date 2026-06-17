@@ -1852,6 +1852,31 @@ def test_router_init_weights_update_group_single_replica_broadcasts() -> None:
         resp = client.post("/init_weights_update_group", json=_INIT_GROUP_PAYLOAD)
     assert resp.status_code == 200
     assert resp.json()["success"] is True
+    assert app.state.workers[0].disabled is False
+
+
+def test_router_init_weights_update_group_failure_keeps_worker_disabled() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "healthy"}, request=request)
+        if request.url.path == "/init_weights_update_group":
+            return httpx.Response(
+                504,
+                json={"success": False, "message": "rendezvous timed out"},
+                request=request,
+            )
+        raise AssertionError(f"unexpected request path: {request.url.path}")
+
+    async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = create_app(
+        _router_config(worker_configs=[WorkerConfig(url="http://worker-a:8101")]),
+        client=async_client,
+    )
+    with TestClient(app) as client:
+        resp = client.post("/init_weights_update_group", json=_INIT_GROUP_PAYLOAD)
+    assert resp.status_code == 502
+    assert resp.json()["success"] is False
+    assert app.state.workers[0].disabled is True
 
 
 def test_router_init_weights_update_group_rejects_multiple_replicas() -> None:

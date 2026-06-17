@@ -368,6 +368,43 @@ def test_omni_scheduler_distributed_update_aborts_and_flushes_cache() -> None:
     assert empty_cache_calls == 1
 
 
+def test_omni_scheduler_distributed_update_failure_keeps_engine_paused() -> None:
+    from sglang_omni.scheduling.omni_scheduler import OmniScheduler
+
+    def update_weights_from_distributed(payload: dict) -> tuple[bool, str]:
+        return (
+            False,
+            "Failed to update parameter online: partially updated; discard weights",
+        )
+
+    scheduler = object.__new__(OmniScheduler)
+    scheduler.model_worker = SimpleNamespace(
+        update_weights_from_distributed=update_weights_from_distributed
+    )
+    scheduler._admin_lock = threading.Lock()
+    scheduler._engine_paused = False
+    scheduler._last_pause_mode = None
+    scheduler._async_pending = None
+    scheduler.result_queue = None
+    scheduler._resolve_pending_async = lambda: None
+    scheduler._active_request_ids = lambda: []
+
+    result = OmniScheduler._admin_update_weights_from_distributed(
+        scheduler,
+        {
+            "names": ["w.0"],
+            "dtypes": ["bfloat16"],
+            "shapes": [[2, 2]],
+            "flush_cache": False,
+        },
+    )
+
+    assert result["success"] is False
+    assert "partially updated" in result["message"]
+    assert result["data"]["engine_paused"] is True
+    assert scheduler._engine_paused is True
+
+
 def test_coordinator_admin_waits_for_all_stage_results() -> None:
     async def _run() -> None:
         coordinator = Coordinator(

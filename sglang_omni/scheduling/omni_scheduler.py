@@ -1051,8 +1051,11 @@ class OmniScheduler:
         payload: dict[str, Any],
         update_fn,
         result_data: dict[str, Any],
+        *,
+        keep_pause_on_failure: bool = False,
     ) -> dict[str, Any]:
         keep_pause = bool(payload.get("keep_pause", False))
+        keep_engine_paused = keep_pause
         with self._admin_lock:
             previous_pause_state = self._engine_paused
             self._engine_paused = True
@@ -1087,7 +1090,12 @@ class OmniScheduler:
                             },
                         }
 
-                success, message = update_fn(payload)
+                try:
+                    success, message = update_fn(payload)
+                except Exception:
+                    if keep_pause_on_failure:
+                        keep_engine_paused = True
+                    raise
                 flush_success: bool | None = None
                 if success and bool(payload.get("flush_cache", True)):
                     flush_success = self._flush_cache_after_update()
@@ -1095,10 +1103,14 @@ class OmniScheduler:
                     if not flush_success:
                         message = f"{message}; cache flush failed"
 
+                if keep_pause_on_failure and not success:
+                    keep_engine_paused = True
                 if bool(payload.get("torch_empty_cache", False)):
                     self._empty_torch_cache()
             finally:
-                if not keep_pause:
+                if keep_engine_paused:
+                    self._engine_paused = True
+                else:
                     self._engine_paused = previous_pause_state
 
         data = {
@@ -1152,6 +1164,7 @@ class OmniScheduler:
                 "group_name": payload.get("group_name"),
                 "names": payload.get("names", []),
             },
+            keep_pause_on_failure=True,
         )
 
     def _admin_init_weights_update_group(

@@ -491,6 +491,7 @@ async def _broadcast_admin_request_locked(
     body = await request.body()
     headers = filter_request_headers(request)
     previous_disabled = {worker.worker_id: worker.disabled for worker in workers}
+    results: list[dict[str, Any]] | None = None
     if disable_targets:
         for worker in workers:
             worker.set_disabled(True)
@@ -510,8 +511,7 @@ async def _broadcast_admin_request_locked(
         )
     finally:
         if disable_targets:
-            for worker in workers:
-                worker.set_disabled(previous_disabled[worker.worker_id])
+            _restore_admin_disabled_state(path, workers, previous_disabled, results)
 
     success = all(item["success"] for item in results)
     if path == "/model_info":
@@ -525,6 +525,30 @@ async def _broadcast_admin_request_locked(
         "results": results,
     }
     return JSONResponse(payload, status_code=200 if success else 502)
+
+
+def _restore_admin_disabled_state(
+    path: str,
+    workers: list[Worker],
+    previous_disabled: dict[str, bool],
+    results: list[dict[str, Any]] | None,
+) -> None:
+    keep_disabled_urls: set[str] = set()
+    if path == "/init_weights_update_group":
+        if results is None:
+            keep_disabled_urls = {worker.url for worker in workers}
+        else:
+            keep_disabled_urls = {
+                str(item.get("worker"))
+                for item in results
+                if item.get("success") is not True
+            }
+
+    for worker in workers:
+        if worker.url in keep_disabled_urls:
+            worker.set_disabled(True)
+            continue
+        worker.set_disabled(previous_disabled[worker.worker_id])
 
 
 def _model_info_broadcast_response(

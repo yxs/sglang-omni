@@ -52,7 +52,10 @@ then sends metadata (`names`, `dtypes`, `shapes`, `group_name`, and optional
 actual tensors move over the distributed group. The distributed update path uses
 the same scheduler-thread lifecycle as disk updates: active requests must be
 aborted or safely retracted, cache is flushed by default, and the visible
-`weight_version` is updated after a successful runner update.
+`weight_version` is updated after a successful runner update. If the distributed
+update fails, the scheduler remains paused because SGLang may have partially
+updated the model weights; recover by reloading or otherwise repairing the
+worker before calling `continue_generation`.
 
 `/update_weights_from_tensor` is still reserved for a future tensor data-plane
 integration and returns HTTP 501 from the worker and router HTTP APIs.
@@ -78,7 +81,9 @@ state.
 The router serializes pause, distributed group lifecycle, and weight-update
 broadcasts with an admin update lock. If another update holds the lock for too
 long, the router returns HTTP 503 instead of blocking subsequent admin callers
-indefinitely.
+indefinitely. If distributed group initialization fails or times out, the target
+worker remains disabled until an operator explicitly re-enables it after
+recovery.
 
 ## Weight Checker
 
