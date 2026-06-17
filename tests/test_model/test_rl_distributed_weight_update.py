@@ -29,7 +29,7 @@ import time
 import pytest
 import requests
 
-from tests._util.process import _wait_for, _wait_for_process_line
+from tests.unit_test._util.process import _wait_for, _wait_for_process_line
 
 HF_TTS_MODEL = "bosonai/higgs-audio-v3-tts-4b"
 BASE_CACHE_DIRNAME = "models--boson-sglang--higgs-audio-v3-generation-4B-base"
