@@ -582,7 +582,7 @@ class ModelRunner:
         else:
             token_id_values = next_token_ids
         token_ids = [int(t) for t in token_id_values]
-        if len(logprobs) < len(requests) or len(token_ids) < len(requests):
+        if len(logprobs) != len(token_ids) or len(logprobs) != len(requests):
             logger.warning(
                 "Skipping rollout logprob capture due to batch-size mismatch: "
                 "logprobs=%s token_ids=%s requests=%s",
