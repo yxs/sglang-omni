@@ -285,11 +285,17 @@ class ModelWorker:
         world_size = payload.get("world_size")
         if not master_address or master_port is None or world_size is None:
             return False, "master_address, master_port and world_size are required"
+        try:
+            master_port_int = int(master_port)
+            rank_offset_int = int(payload.get("rank_offset", 0))
+            world_size_int = int(world_size)
+        except (TypeError, ValueError):
+            return False, "master_port, rank_offset and world_size must be integers"
         success, message = init(
             master_address,
-            int(master_port),
-            int(payload.get("rank_offset", 0)),
-            int(world_size),
+            master_port_int,
+            rank_offset_int,
+            world_size_int,
             payload.get("group_name") or "weight_update_group",
             backend=payload.get("backend") or "nccl",
         )

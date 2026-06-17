@@ -161,6 +161,28 @@ def test_model_worker_init_weights_update_group_passes_positional_args() -> None
     assert calls == [("10.0.0.1", 12355, 1, 2, "talker_group", "nccl")]
 
 
+def test_model_worker_init_weights_update_group_rejects_non_integer_fields() -> None:
+    def init_weights_update_group(*args: Any, **kwargs: Any) -> tuple[bool, str]:
+        raise AssertionError("init should not run for a non-integer payload")
+
+    runner = SimpleNamespace(init_weights_update_group=init_weights_update_group)
+    worker = object.__new__(ModelWorker)
+    worker.server_args = SimpleNamespace()
+    worker.model_runner = runner
+
+    success, message = ModelWorker.init_weights_update_group(
+        worker,
+        {
+            "master_address": "10.0.0.1",
+            "master_port": "not-a-port",
+            "world_size": 2,
+        },
+    )
+
+    assert success is False
+    assert "integers" in message
+
+
 def test_model_worker_destroy_weights_update_group_passes_group_name() -> None:
     calls: list[str] = []
 
