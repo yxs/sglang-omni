@@ -1008,7 +1008,11 @@ def _build_generate_response(
         if usage is not None and usage.completion_tokens is not None
         else 0
     )
-    prompt_tokens = usage.prompt_tokens if usage is not None else None
+    prompt_tokens = (
+        usage.prompt_tokens
+        if usage is not None and usage.prompt_tokens is not None
+        else 0
+    )
 
     finish_type = result.finish_reason or "stop"
     finish_reason = GenerateFinishReason(

@@ -72,6 +72,7 @@ def test_generate_returns_miles_meta_info() -> None:
     assert meta["finish_reason"] == {"type": "stop", "length": None}
     assert meta["completion_tokens"] == 2
     assert meta["prompt_tokens"] == 5
+    assert meta["cached_tokens"] == 0
     assert meta["weight_version"] == "v3"
     assert meta["output_token_logprobs"] == [[-0.1, 11], [-0.2, 22]]
     assert meta["request_metadata"] == {"rollout_id": 42, "group_id": 1}

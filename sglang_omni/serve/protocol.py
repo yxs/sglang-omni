@@ -192,9 +192,9 @@ class GenerateMetaInfo(BaseModel):
     """Rollout meta_info block."""
 
     finish_reason: GenerateFinishReason
-    prompt_tokens: int | None = None
+    prompt_tokens: int = 0
     completion_tokens: int = 0
-    cached_tokens: int | None = None
+    cached_tokens: int = 0
     weight_version: str = ""
     request_metadata: dict[str, Any] | None = None
     output_token_logprobs: list[Any] | None = None
