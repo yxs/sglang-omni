@@ -193,7 +193,6 @@ def _tts_checksums(url: str) -> dict:
 def test_distributed_refit_matches_base_and_keeps_serving(tmp_path):
     base_dir = _resolve_base_dir()
 
-    # Ground truth: a server loaded directly from base, in inference representation.
     proc_b, url_b = _boot_server(base_dir, BASE_REF_PORT, gpu=1)
     try:
         base_ck = _tts_checksums(url_b)
