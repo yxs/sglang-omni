@@ -441,11 +441,6 @@ def _infer_payload_capabilities(
 ) -> set[Capability]:
     capabilities: set[Capability] = set()
     capabilities.update(_infer_input_field_capabilities(payload))
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict):
-        capabilities.update(_infer_input_field_capabilities(metadata))
-        if _modalities_include_audio(metadata):
-            capabilities.add("audio_output")
     if path == "/v1/audio/speech" and _speech_uses_reference_audio(payload):
         capabilities.add("audio_input")
     if _modalities_include_audio(payload) or _has_non_empty(payload.get("audio")):

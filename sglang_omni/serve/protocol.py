@@ -146,6 +146,30 @@ class ChatCompletionStreamResponse(BaseModel):
     usage: UsageResponse | None = None
 
 
+class RolloutSamplingParams(BaseModel):
+    """Typed sampling params for ``POST /generate``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    temperature: float | None = Field(default=None, ge=0.0)
+    top_p: float | None = Field(default=None, gt=0.0, le=1.0)
+    top_k: int | None = None
+    min_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    repetition_penalty: float | None = Field(default=None, gt=0.0)
+    stop: str | list[str] | None = None
+    stop_token_ids: list[int] | None = None
+    seed: int | None = None
+    max_new_tokens: int | None = Field(default=None, ge=1)
+    max_tokens: int | None = Field(default=None, ge=1)
+
+
+class RolloutMessage(BaseModel):
+    """Chat message for ``POST /generate`` (role and content required)."""
+
+    role: str = Field(min_length=1)
+    content: str | list[Any]
+
+
 class RolloutGenerateRequest(BaseModel):
     """Rollout request for ``POST /generate``; set exactly one of
     ``input_ids``, ``prompt``, ``messages``."""
@@ -156,11 +180,13 @@ class RolloutGenerateRequest(BaseModel):
 
     input_ids: list[int] | None = None
     prompt: str | None = None
-    messages: list[dict[str, Any]] | None = None
+    messages: list[RolloutMessage] | None = None
 
-    sampling_params: dict[str, Any] = Field(default_factory=dict)
+    sampling_params: RolloutSamplingParams = Field(
+        default_factory=RolloutSamplingParams
+    )
     stream: bool = False
-    stage_sampling: dict[str, dict[str, Any]] | None = None
+    stage_sampling: dict[str, RolloutSamplingParams] | None = None
     stage_params: dict[str, dict[str, Any]] | None = None
     output_modalities: list[str] | None = None
 
@@ -195,7 +221,7 @@ class GenerateMetaInfo(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
-    weight_version: str = ""
+    weight_version: str | None = None
     request_metadata: dict[str, Any] | None = None
     output_token_logprobs: list[Any] | None = None
     omni_rollout: dict[str, Any] | None = None
@@ -344,11 +370,6 @@ class ModelList(BaseModel):
 
     object: str = "list"
     data: list[ModelCard] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Administrative APIs
-# ---------------------------------------------------------------------------
 
 
 class AdminRequestBase(BaseModel):

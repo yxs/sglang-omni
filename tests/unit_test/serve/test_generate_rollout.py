@@ -197,7 +197,7 @@ def test_generate_rejects_missing_logprobs_when_requested() -> None:
 
 def test_generate_rejects_logprob_length_mismatch() -> None:
     result = _text_result()
-    result.output_token_logprobs = []
+    result.output_token_logprobs = [[-0.1, 11]]
     client = _RolloutClient(result)
     tc = TestClient(create_app(client, model_name="qwen3-omni"))
 
@@ -214,7 +214,7 @@ def test_generate_rejects_logprob_length_mismatch() -> None:
     assert "completion_tokens=2" in resp.text
 
 
-def test_generate_rejects_missing_weight_version() -> None:
+def test_generate_echoes_null_weight_version_without_failing() -> None:
     result = _text_result()
     result.weight_version = None
     client = _RolloutClient(result)
@@ -228,8 +228,8 @@ def test_generate_rejects_missing_weight_version() -> None:
         },
     )
 
-    assert resp.status_code == 500
-    assert "weight_version" in resp.text
+    assert resp.status_code == 200
+    assert resp.json()["meta_info"]["weight_version"] is None
 
 
 def test_generate_emits_audio_block_when_present() -> None:
@@ -309,7 +309,7 @@ def test_generate_rejects_unknown_sampling_param() -> None:
         },
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert "temprature" in resp.text
     assert client.requests == []
 
@@ -326,12 +326,12 @@ def test_generate_rejects_invalid_stop_type() -> None:
         },
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert "stop" in resp.text
     assert client.requests == []
 
 
-def test_generate_stage_sampling_bad_key_returns_400_not_500() -> None:
+def test_generate_stage_sampling_bad_key_returns_422() -> None:
     client = _RolloutClient(_text_result())
     tc = TestClient(create_app(client, model_name="qwen3-omni"))
 
@@ -344,7 +344,7 @@ def test_generate_stage_sampling_bad_key_returns_400_not_500() -> None:
         },
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert "bad_key" in resp.text
     assert client.requests == []
 
@@ -368,10 +368,10 @@ def test_generate_rejects_message_without_role_or_content() -> None:
         },
     )
 
-    assert missing_role.status_code == 400
-    assert "messages[0].role" in missing_role.text
-    assert missing_content.status_code == 400
-    assert "messages[0].content" in missing_content.text
+    assert missing_role.status_code == 422
+    assert "role" in missing_role.text
+    assert missing_content.status_code == 422
+    assert "content" in missing_content.text
     assert client.requests == []
 
 

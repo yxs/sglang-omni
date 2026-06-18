@@ -81,6 +81,7 @@ from sglang_omni.serve.protocol import (
     ModelList,
     PauseGenerationRequest,
     RolloutGenerateRequest,
+    RolloutSamplingParams,
     TranscriptionResponse,
     UpdateWeightFromDiskRequest,
     UpdateWeightsFromDistributedRequest,
@@ -963,70 +964,42 @@ def _register_generate(app: FastAPI) -> None:
         return JSONResponse(content=response.model_dump())
 
 
-_ROLLOUT_SAMPLING_FIELDS = (
-    "temperature",
-    "top_p",
-    "top_k",
-    "min_p",
-    "repetition_penalty",
-    "stop_token_ids",
-    "seed",
-    "max_new_tokens",
-)
-_ROLLOUT_SAMPLING_ALLOWED_KEYS = frozenset(
-    (*_ROLLOUT_SAMPLING_FIELDS, "max_tokens", "stop")
-)
-
-
-def _rollout_sampling_from_dict(
-    sampling_params: dict[str, Any], *, context: str = "sampling_params"
-) -> SamplingParams:
-    unknown_keys = sorted(set(sampling_params) - _ROLLOUT_SAMPLING_ALLOWED_KEYS)
-    if unknown_keys:
-        raise ValueError(
-            f"{context} contains unsupported key(s): {', '.join(unknown_keys)}"
-        )
+def _rollout_sampling_to_client(params: RolloutSamplingParams) -> SamplingParams:
     kwargs: dict[str, Any] = {
-        key: sampling_params[key]
-        for key in _ROLLOUT_SAMPLING_FIELDS
-        if sampling_params.get(key) is not None
+        key: value
+        for key, value in (
+            ("temperature", params.temperature),
+            ("top_p", params.top_p),
+            ("top_k", params.top_k),
+            ("min_p", params.min_p),
+            ("repetition_penalty", params.repetition_penalty),
+            ("stop_token_ids", params.stop_token_ids),
+            ("seed", params.seed),
+            ("max_new_tokens", params.max_new_tokens),
+        )
+        if value is not None
     }
-    stop = sampling_params.get("stop")
-    if isinstance(stop, str):
-        kwargs["stop"] = [stop]
-    elif isinstance(stop, list):
-        if any(not isinstance(item, str) for item in stop):
-            raise ValueError(f"{context}.stop must be a string or list of strings")
-        kwargs["stop"] = list(stop)
-    elif stop is not None:
-        raise ValueError(f"{context}.stop must be a string or list of strings")
-    if "max_new_tokens" not in kwargs and sampling_params.get("max_tokens") is not None:
-        kwargs["max_new_tokens"] = sampling_params["max_tokens"]
+    if params.stop is not None:
+        kwargs["stop"] = (
+            [params.stop] if isinstance(params.stop, str) else list(params.stop)
+        )
+    if "max_new_tokens" not in kwargs and params.max_tokens is not None:
+        kwargs["max_new_tokens"] = params.max_tokens
     return SamplingParams(**kwargs)
 
 
 def _build_rollout_generate_request(req: RolloutGenerateRequest) -> GenerateRequest:
     """Convert a rollout GenerateRequest into a client GenerateRequest."""
-    sampling = _rollout_sampling_from_dict(req.sampling_params or {})
+    sampling = _rollout_sampling_to_client(req.sampling_params)
 
     messages: list[Message] | None = None
     if req.messages is not None:
-        messages = []
-        for index, message in enumerate(req.messages):
-            role = message.get("role")
-            if not isinstance(role, str) or not role:
-                raise ValueError(f"messages[{index}].role is required")
-            if "content" not in message or message.get("content") is None:
-                raise ValueError(f"messages[{index}].content is required")
-            messages.append(Message(role=role, content=message["content"]))
+        messages = [Message(role=m.role, content=m.content) for m in req.messages]
 
     stage_sampling: dict[str, SamplingParams] | None = None
     if req.stage_sampling:
         stage_sampling = {
-            name: _rollout_sampling_from_dict(
-                params,
-                context=f"stage_sampling.{name}",
-            )
+            name: _rollout_sampling_to_client(params)
             for name, params in req.stage_sampling.items()
         }
 
@@ -1077,29 +1050,27 @@ def _build_generate_response(
         type=finish_type,
         length=completion_tokens if finish_type == "length" else None,
     )
-    if not result.weight_version:
+    if req.return_logprob and result.output_token_logprobs is None:
         raise HTTPException(
             status_code=500,
-            detail="backend did not return weight_version",
+            detail=(
+                "backend did not return output_token_logprobs "
+                "for return_logprob=true"
+            ),
         )
-    if req.return_logprob:
-        if result.output_token_logprobs is None:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "backend did not return output_token_logprobs "
-                    "for return_logprob=true"
-                ),
-            )
-        if len(result.output_token_logprobs) != completion_tokens:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "backend returned output_token_logprobs length "
-                    f"{len(result.output_token_logprobs)} for "
-                    f"completion_tokens={completion_tokens}"
-                ),
-            )
+    if (
+        req.return_logprob
+        and result.output_token_logprobs is not None
+        and len(result.output_token_logprobs) != completion_tokens
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "backend returned output_token_logprobs length "
+                f"{len(result.output_token_logprobs)} for "
+                f"completion_tokens={completion_tokens}"
+            ),
+        )
     if req.return_omni_rollout and result.omni_rollout is None:
         raise HTTPException(
             status_code=501,
