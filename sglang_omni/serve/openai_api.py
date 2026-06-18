@@ -931,12 +931,17 @@ def _register_generate(app: FastAPI) -> None:
                 status_code=400,
                 detail="exactly one of input_ids, prompt, or messages is required",
             )
+        if req.stream:
+            raise HTTPException(
+                status_code=400,
+                detail="stream=true is not supported by /generate yet",
+            )
 
         request_id = str(uuid.uuid4())
-        gen_req = _build_rollout_generate_request(req)
         audio_format = "wav"
 
         try:
+            gen_req = _build_rollout_generate_request(req)
             result = await client.completion(
                 gen_req,
                 request_id=request_id,
@@ -968,9 +973,19 @@ _ROLLOUT_SAMPLING_FIELDS = (
     "seed",
     "max_new_tokens",
 )
+_ROLLOUT_SAMPLING_ALLOWED_KEYS = frozenset(
+    (*_ROLLOUT_SAMPLING_FIELDS, "max_tokens", "stop")
+)
 
 
-def _rollout_sampling_from_dict(sampling_params: dict[str, Any]) -> SamplingParams:
+def _rollout_sampling_from_dict(
+    sampling_params: dict[str, Any], *, context: str = "sampling_params"
+) -> SamplingParams:
+    unknown_keys = sorted(set(sampling_params) - _ROLLOUT_SAMPLING_ALLOWED_KEYS)
+    if unknown_keys:
+        raise ValueError(
+            f"{context} contains unsupported key(s): {', '.join(unknown_keys)}"
+        )
     kwargs: dict[str, Any] = {
         key: sampling_params[key]
         for key in _ROLLOUT_SAMPLING_FIELDS
@@ -980,7 +995,11 @@ def _rollout_sampling_from_dict(sampling_params: dict[str, Any]) -> SamplingPara
     if isinstance(stop, str):
         kwargs["stop"] = [stop]
     elif isinstance(stop, list):
+        if any(not isinstance(item, str) for item in stop):
+            raise ValueError(f"{context}.stop must be a string or list of strings")
         kwargs["stop"] = list(stop)
+    elif stop is not None:
+        raise ValueError(f"{context}.stop must be a string or list of strings")
     if "max_new_tokens" not in kwargs and sampling_params.get("max_tokens") is not None:
         kwargs["max_new_tokens"] = sampling_params["max_tokens"]
     return SamplingParams(**kwargs)
@@ -992,15 +1011,22 @@ def _build_rollout_generate_request(req: RolloutGenerateRequest) -> GenerateRequ
 
     messages: list[Message] | None = None
     if req.messages is not None:
-        messages = [
-            Message(role=m.get("role", "user"), content=m.get("content"))
-            for m in req.messages
-        ]
+        messages = []
+        for index, message in enumerate(req.messages):
+            role = message.get("role")
+            if not isinstance(role, str) or not role:
+                raise ValueError(f"messages[{index}].role is required")
+            if "content" not in message or message.get("content") is None:
+                raise ValueError(f"messages[{index}].content is required")
+            messages.append(Message(role=role, content=message["content"]))
 
     stage_sampling: dict[str, SamplingParams] | None = None
     if req.stage_sampling:
         stage_sampling = {
-            name: SamplingParams(**params)
+            name: _rollout_sampling_from_dict(
+                params,
+                context=f"stage_sampling.{name}",
+            )
             for name, params in req.stage_sampling.items()
         }
 
@@ -1051,6 +1077,34 @@ def _build_generate_response(
         type=finish_type,
         length=completion_tokens if finish_type == "length" else None,
     )
+    if not result.weight_version:
+        raise HTTPException(
+            status_code=500,
+            detail="backend did not return weight_version",
+        )
+    if req.return_logprob:
+        if result.output_token_logprobs is None:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "backend did not return output_token_logprobs "
+                    "for return_logprob=true"
+                ),
+            )
+        if len(result.output_token_logprobs) != completion_tokens:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "backend returned output_token_logprobs length "
+                    f"{len(result.output_token_logprobs)} for "
+                    f"completion_tokens={completion_tokens}"
+                ),
+            )
+    if req.return_omni_rollout and result.omni_rollout is None:
+        raise HTTPException(
+            status_code=501,
+            detail="backend did not return omni_rollout for return_omni_rollout=true",
+        )
 
     audio: GenerateAudio | None = None
     if result.audio is not None:
@@ -1060,7 +1114,7 @@ def _build_generate_response(
         finish_reason=finish_reason,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
-        weight_version=result.weight_version or "",
+        weight_version=result.weight_version,
         request_metadata=req.metadata,
         output_token_logprobs=(
             result.output_token_logprobs if req.return_logprob else None
@@ -1338,9 +1392,11 @@ async def _wait_for_request_disconnect(request: Request) -> None:
 
 
 async def _close_async_iterator_if_supported(stream: AsyncIterator[Any]) -> None:
-    close = getattr(stream, "aclose", None)
-    if close is not None:
-        await close()
+    try:
+        close = stream.aclose
+    except AttributeError:
+        return
+    await close()
 
 
 async def _abort_and_close_speech_stream(

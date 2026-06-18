@@ -203,6 +203,122 @@ def test_generate_is_forwarded_opaquely_to_a_worker() -> None:
     assert data_paths == ["/generate"]
 
 
+def test_generate_audio_output_routes_to_audio_worker() -> None:
+    seen_workers: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "healthy"}, request=request)
+        if request.url.path == "/generate":
+            seen_workers.append(_request_netloc(request))
+            return httpx.Response(
+                200, json={"text": "hi", "meta_info": {}}, request=request
+            )
+        raise AssertionError(f"unexpected request path: {request.url.path}")
+
+    worker_configs = [
+        WorkerConfig(url="http://worker-a:8101", capabilities={"chat"}),
+        WorkerConfig(url="http://worker-b:8102", capabilities={"chat", "audio_output"}),
+    ]
+    async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = create_app(_router_config(worker_configs=worker_configs), client=async_client)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "messages": [{"role": "user", "content": "say hi"}],
+                "sampling_params": {},
+                "output_modalities": ["audio"],
+            },
+        )
+
+    assert response.status_code == 200
+    assert seen_workers == ["worker-b:8102"]
+
+
+@pytest.mark.parametrize(
+    ("metadata_field", "capability"),
+    [
+        ("images", "image_input"),
+        ("audios", "audio_input"),
+        ("videos", "video_input"),
+    ],
+)
+def test_generate_metadata_inputs_route_to_multimodal_worker(
+    metadata_field: str,
+    capability: str,
+) -> None:
+    seen_workers: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "healthy"}, request=request)
+        if request.url.path == "/generate":
+            seen_workers.append(_request_netloc(request))
+            return httpx.Response(
+                200, json={"text": "hi", "meta_info": {}}, request=request
+            )
+        raise AssertionError(f"unexpected request path: {request.url.path}")
+
+    worker_configs = [
+        WorkerConfig(url="http://worker-a:8101", capabilities={"chat"}),
+        WorkerConfig(
+            url="http://worker-b:8102",
+            capabilities={"chat", capability},
+        ),
+    ]
+    async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = create_app(_router_config(worker_configs=worker_configs), client=async_client)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "messages": [{"role": "user", "content": "describe"}],
+                "sampling_params": {},
+                "metadata": {metadata_field: ["sample"]},
+            },
+        )
+
+    assert response.status_code == 200
+    assert seen_workers == ["worker-b:8102"]
+
+
+def test_generate_metadata_output_modalities_route_to_audio_worker() -> None:
+    seen_workers: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "healthy"}, request=request)
+        if request.url.path == "/generate":
+            seen_workers.append(_request_netloc(request))
+            return httpx.Response(
+                200, json={"text": "hi", "meta_info": {}}, request=request
+            )
+        raise AssertionError(f"unexpected request path: {request.url.path}")
+
+    worker_configs = [
+        WorkerConfig(url="http://worker-a:8101", capabilities={"chat"}),
+        WorkerConfig(url="http://worker-b:8102", capabilities={"chat", "audio_output"}),
+    ]
+    async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = create_app(_router_config(worker_configs=worker_configs), client=async_client)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "messages": [{"role": "user", "content": "say hi"}],
+                "sampling_params": {},
+                "metadata": {"output_modalities": ["audio"]},
+            },
+        )
+
+    assert response.status_code == 200
+    assert seen_workers == ["worker-b:8102"]
+
+
 def test_router_liveness_does_not_wait_for_worker_health_probe() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/health":

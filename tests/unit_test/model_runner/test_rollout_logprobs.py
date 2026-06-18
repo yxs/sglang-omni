@@ -63,6 +63,34 @@ def test_rollout_logprobs_raises_on_batch_size_mismatch() -> None:
     assert data.output_token_logprobs == []
 
 
+def test_rollout_logprobs_raises_on_malformed_sampler_shape() -> None:
+    runner = object.__new__(ModelRunner)
+    data = SimpleNamespace(return_logprob=True, output_token_logprobs=[])
+
+    with pytest.raises(RuntimeError, match="Failed to convert"):
+        runner._record_rollout_logprobs(
+            [[-0.5, -0.7]],
+            torch.tensor([11]),
+            [SimpleNamespace(data=data)],
+        )
+
+    assert data.output_token_logprobs == []
+
+
+def test_rollout_logprobs_raises_when_sampler_omits_token_ids() -> None:
+    runner = object.__new__(ModelRunner)
+    data = SimpleNamespace(return_logprob=True, output_token_logprobs=[])
+
+    with pytest.raises(RuntimeError, match="next_token_ids"):
+        runner._record_rollout_logprobs(
+            torch.tensor([-0.5]),
+            None,
+            [SimpleNamespace(data=data)],
+        )
+
+    assert data.output_token_logprobs == []
+
+
 def test_enable_sampler_logprobs_initializes_missing_forward_batch_fields() -> None:
     forward_batch = SimpleNamespace()
 
@@ -82,6 +110,28 @@ def test_record_rollout_logprobs_skips_without_return_flag() -> None:
     )
 
     assert data.output_token_logprobs == []
+
+
+def test_record_rollout_logprobs_requires_output_list() -> None:
+    runner = object.__new__(ModelRunner)
+    data = SimpleNamespace(return_logprob=True)
+
+    with pytest.raises(AttributeError, match="output_token_logprobs"):
+        runner._record_rollout_logprobs(
+            torch.tensor([-0.25]), torch.tensor([33]), [SimpleNamespace(data=data)]
+        )
+
+    assert "output_token_logprobs" not in vars(data)
+
+
+def test_record_rollout_logprobs_requires_return_flag() -> None:
+    runner = object.__new__(ModelRunner)
+    data = SimpleNamespace(output_token_logprobs=[])
+
+    with pytest.raises(AttributeError, match="return_logprob"):
+        runner._record_rollout_logprobs(
+            torch.tensor([-0.25]), torch.tensor([33]), [SimpleNamespace(data=data)]
+        )
 
 
 def test_sample_next_token_ids_requires_sampler_logprobs_when_requested() -> None:

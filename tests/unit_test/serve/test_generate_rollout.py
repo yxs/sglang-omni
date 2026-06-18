@@ -122,6 +122,23 @@ def test_generate_omits_omni_rollout_when_not_requested() -> None:
     assert resp.json()["meta_info"]["omni_rollout"] is None
 
 
+def test_generate_rejects_missing_omni_rollout_when_requested() -> None:
+    client = _RolloutClient(_text_result())
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {},
+            "return_omni_rollout": True,
+        },
+    )
+
+    assert resp.status_code == 501
+    assert "omni_rollout" in resp.text
+
+
 def test_generate_omits_logprobs_when_not_requested() -> None:
     client = _RolloutClient(_text_result())
     tc = TestClient(create_app(client, model_name="qwen3-omni"))
@@ -142,6 +159,7 @@ def test_generate_omits_logprobs_when_not_requested() -> None:
 def test_generate_preserves_empty_logprob_list_when_requested() -> None:
     result = _text_result()
     result.output_token_logprobs = []
+    result.usage = UsageInfo(prompt_tokens=5, completion_tokens=0, total_tokens=5)
     client = _RolloutClient(result)
     tc = TestClient(create_app(client, model_name="qwen3-omni"))
 
@@ -156,6 +174,62 @@ def test_generate_preserves_empty_logprob_list_when_requested() -> None:
 
     assert resp.status_code == 200
     assert resp.json()["meta_info"]["output_token_logprobs"] == []
+
+
+def test_generate_rejects_missing_logprobs_when_requested() -> None:
+    result = _text_result()
+    result.output_token_logprobs = None
+    client = _RolloutClient(result)
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {},
+            "return_logprob": True,
+        },
+    )
+
+    assert resp.status_code == 500
+    assert "output_token_logprobs" in resp.text
+
+
+def test_generate_rejects_logprob_length_mismatch() -> None:
+    result = _text_result()
+    result.output_token_logprobs = []
+    client = _RolloutClient(result)
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {},
+            "return_logprob": True,
+        },
+    )
+
+    assert resp.status_code == 500
+    assert "completion_tokens=2" in resp.text
+
+
+def test_generate_rejects_missing_weight_version() -> None:
+    result = _text_result()
+    result.weight_version = None
+    client = _RolloutClient(result)
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {},
+        },
+    )
+
+    assert resp.status_code == 500
+    assert "weight_version" in resp.text
 
 
 def test_generate_emits_audio_block_when_present() -> None:
@@ -203,6 +277,102 @@ def test_generate_rejects_ambiguous_prompt_inputs() -> None:
     )
 
     assert resp.status_code == 400
+
+
+def test_generate_rejects_streaming_rollout_until_supported() -> None:
+    client = _RolloutClient(_text_result())
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {},
+            "stream": True,
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "stream=true" in resp.text
+    assert client.requests == []
+
+
+def test_generate_rejects_unknown_sampling_param() -> None:
+    client = _RolloutClient(_text_result())
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {"temprature": 0.7},
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "temprature" in resp.text
+    assert client.requests == []
+
+
+def test_generate_rejects_invalid_stop_type() -> None:
+    client = _RolloutClient(_text_result())
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {"stop": 12},
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "stop" in resp.text
+    assert client.requests == []
+
+
+def test_generate_stage_sampling_bad_key_returns_400_not_500() -> None:
+    client = _RolloutClient(_text_result())
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    resp = tc.post(
+        "/generate",
+        json={
+            "prompt": "hi",
+            "sampling_params": {},
+            "stage_sampling": {"thinker": {"bad_key": 1}},
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "bad_key" in resp.text
+    assert client.requests == []
+
+
+def test_generate_rejects_message_without_role_or_content() -> None:
+    client = _RolloutClient(_text_result())
+    tc = TestClient(create_app(client, model_name="qwen3-omni"))
+
+    missing_role = tc.post(
+        "/generate",
+        json={
+            "messages": [{"content": "hi"}],
+            "sampling_params": {},
+        },
+    )
+    missing_content = tc.post(
+        "/generate",
+        json={
+            "messages": [{"role": "user"}],
+            "sampling_params": {},
+        },
+    )
+
+    assert missing_role.status_code == 400
+    assert "messages[0].role" in missing_role.text
+    assert missing_content.status_code == 400
+    assert "messages[0].content" in missing_content.text
+    assert client.requests == []
 
 
 def test_converter_maps_input_ids_to_prompt_token_ids() -> None:
@@ -285,4 +455,4 @@ def test_converter_defaults_stream_false_and_logprob_true() -> None:
     req = RolloutRequest(prompt="hi", sampling_params={})
     assert req.stream is False
     assert req.return_logprob is True
-    assert req.return_omni_rollout is True
+    assert req.return_omni_rollout is False

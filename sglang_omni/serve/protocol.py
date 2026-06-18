@@ -167,7 +167,7 @@ class RolloutGenerateRequest(BaseModel):
     metadata: dict[str, Any] | None = None
 
     return_logprob: bool = True
-    return_omni_rollout: bool = True
+    return_omni_rollout: bool = False
     return_routed_experts: bool = False
     return_indexer_topk: bool = False
 
