@@ -25,12 +25,13 @@ env:
 jobs:
   stage-1-qwen3-asr:
     name: stage 1 - Qwen3-ASR correctness
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, h100]
     timeout-minutes: 30
     container:
       image: crpi-n6adu6llixz83q37.cn-hangzhou.personal.cr.aliyuncs.com/hongccc/sglang-omni:dev
       options: >-
-        --gpus all --rm
+        --rm
+        -e NVIDIA_VISIBLE_DEVICES=6,7
         -v /dev/shm:/dev/shm
         -v /data/cache/huggingface:/github/home/.cache/huggingface
         -v /data/cache/huggingface:/root/.cache/huggingface
@@ -66,12 +67,13 @@ jobs:
 
   stage-2-non-streaming:
     name: stage 2 - non-streaming
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, h100]
     timeout-minutes: 25
     container:
       image: crpi-n6adu6llixz83q37.cn-hangzhou.personal.cr.aliyuncs.com/hongccc/sglang-omni:dev
       options: >-
-        --gpus all --rm
+        --rm
+        -e NVIDIA_VISIBLE_DEVICES=6,7
         -v /dev/shm:/dev/shm
         -v /data/cache/huggingface:/github/home/.cache/huggingface
         -v /data/cache/huggingface:/root/.cache/huggingface
@@ -129,12 +131,13 @@ jobs:
 
   stage-3-streaming:
     name: stage 3 - streaming
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, h100]
     timeout-minutes: 25
     container:
       image: crpi-n6adu6llixz83q37.cn-hangzhou.personal.cr.aliyuncs.com/hongccc/sglang-omni:dev
       options: >-
-        --gpus all --rm
+        --rm
+        -e NVIDIA_VISIBLE_DEVICES=6,7
         -v /dev/shm:/dev/shm
         -v /data/cache/huggingface:/github/home/.cache/huggingface
         -v /data/cache/huggingface:/root/.cache/huggingface
@@ -182,12 +185,13 @@ jobs:
   stage-4-consistency:
     name: stage 4 - consistency
     needs: [stage-2-non-streaming, stage-3-streaming]
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, h100]
     timeout-minutes: 5
     container:
       image: crpi-n6adu6llixz83q37.cn-hangzhou.personal.cr.aliyuncs.com/hongccc/sglang-omni:dev
       options: >-
-        --gpus all --rm
+        --rm
+        -e NVIDIA_VISIBLE_DEVICES=6,7
         -v /dev/shm:/dev/shm
         -v /data/cache/huggingface:/github/home/.cache/huggingface
         -v /data/cache/huggingface:/root/.cache/huggingface
