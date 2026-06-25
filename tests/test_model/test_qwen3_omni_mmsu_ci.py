@@ -69,7 +69,7 @@ def _build_args(port: int, output_dir: str) -> argparse.Namespace:
         disable_tqdm=False,
         seed=None,
         repo_id=DATASETS["mmsu-ci-2000"],
-        # Unused in text-only mode but kept for API consistency with run().
+        # Unused by this text-output benchmark (modalities="text"); kept for API consistency with run().
         lang="en",
         asr_device="cuda:0",
     )
