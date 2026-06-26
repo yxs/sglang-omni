@@ -33,18 +33,6 @@ logger = logging.getLogger(__name__)
 _SOURCE_HINT = "MOSS-TTS Local"
 
 
-def _resolve_sample_rate(processor: Any) -> int:
-    return int(
-        getattr(getattr(processor, "model_config", None), "sampling_rate", 0)
-        or getattr(
-            getattr(getattr(processor, "audio_tokenizer", None), "config", None),
-            "sampling_rate",
-            0,
-        )
-        or 48000
-    )
-
-
 def _build_usage(state: MossTTSLocalState) -> dict[str, Any] | None:
     if not (state.prompt_tokens or state.completion_tokens or state.engine_time_s):
         return None
@@ -251,8 +239,8 @@ class _CodecStreamSession:
     def decode_offline(
         self, codes_list: list[torch.Tensor], *, max_step_frames: int
     ) -> list[torch.Tensor]:
-        """Decode complete utterances ``[n_vq, T]`` via the offline lane, replaying the codec's
-        chunked ``batch_decode`` so output matches ``processor.decode_audio_codes``."""
+        """Decode complete utterances ``[n_vq, T]`` through offline slots in the
+        persistent codec session."""
         wavs: list[torch.Tensor] = []
         for wave_start in range(0, len(codes_list), self._offline_slots):
             wave = codes_list[wave_start : wave_start + self._offline_slots]
@@ -301,8 +289,10 @@ class MossTTSLocalStreamingVocoderScheduler(StreamingSimpleScheduler):
 
     def __init__(
         self,
-        processor: Any,
+        codec: Any,
         *,
+        n_vq: int,
+        sample_rate: int,
         stream_slots: int = 8,
         stream_chunk_frames: int = 25,
         initial_chunk_frames: int = 5,
@@ -319,11 +309,6 @@ class MossTTSLocalStreamingVocoderScheduler(StreamingSimpleScheduler):
             raise ValueError(
                 "stream_chunk_frames must be in (0, max_step_frames], got "
                 f"{stream_chunk_frames} (max_step_frames={max_step_frames})"
-            )
-        codec = getattr(processor, "audio_tokenizer", None)
-        if codec is None:
-            raise RuntimeError(
-                "MOSS-TTS Local vocoder requires processor.audio_tokenizer"
             )
         missing = [
             name
@@ -354,8 +339,8 @@ class MossTTSLocalStreamingVocoderScheduler(StreamingSimpleScheduler):
         )
         self._max_step_frames = int(max_step_frames)
         self._offline_slots = max(int(max_batch_size), 1)
-        self._n_vq = int(processor.model_config.n_vq)
-        self._sample_rate = _resolve_sample_rate(processor)
+        self._n_vq = int(n_vq)
+        self._sample_rate = int(sample_rate)
         self._session: _CodecStreamSession | None = None
         self._session_used_by_streaming = False
         self._cuda_graph = bool(cuda_graph)
@@ -527,37 +512,12 @@ class MossTTSLocalStreamingVocoderScheduler(StreamingSimpleScheduler):
             self._session = None
 
     def _cuda_graph_capture_frames(self) -> list[int]:
-        """Step lengths T to capture (config ``cuda_graph_frames`` overrides). Default is a
-        data-driven broad-exact set (see below); uncaptured T fall back to eager."""
+        """Step lengths T to capture. Config ``cuda_graph_frames`` overrides the default."""
         if self._cuda_graph_frames:
             # Validated at config (>= 1) and __init__ (<= max_step_frames); use as configured.
             return sorted(set(self._cuda_graph_frames))
-        # Broad-exact small-T set (measured per-T serving frequency). The T=max_step_frames cap is
-        # excluded (biggest single graph, only ~1.04x offline-lane) to shrink the warmup VRAM peak.
-        join_floor = max(
-            1,
-            min(self._default_initial_chunk_frames or 5, self._stream_chunk_frames),
-        )
-        frames = [
-            4,
-            5,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            20,
-            22,
-            24,
-            25,
-            join_floor,
-            self._default_initial_chunk_frames or join_floor,
-            self._stream_chunk_frames,
-        ]
-        # Clamp the generated default to the supported range (this is the auto-default, not user
-        # input; user-supplied frames are validated and rejected, never silently filtered).
-        return sorted({t for t in frames if 1 <= t <= self._max_step_frames})
+        max_frame = min(self._stream_chunk_frames, self._max_step_frames)
+        return list(range(1, max_frame + 1))
 
     def _codec_on_cuda(self) -> bool:
         try:
@@ -848,8 +808,6 @@ class MossTTSLocalStreamingVocoderScheduler(StreamingSimpleScheduler):
             # The processor helper forces chunk_duration=8 and enters the
             # tokenizer streaming loop. This decoder is non-streaming, so it must
             # run through the tokenizer's full-sequence decode path.
-            # TODO(Ratish): Load and own the non-streaming codec directly so this
-            # path does not need to swap the processor-owned decoder at call time.
             original_decoder = self._codec.decoder
             self._codec.decoder = self._nonstream_decoder
             try:
