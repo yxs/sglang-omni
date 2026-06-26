@@ -46,88 +46,72 @@ QWEN3_OMNI_FP8_TEST_MODEL_PATH = os.environ.get(
 )
 QWEN3_OMNI_MODEL_NAME = "qwen3-omni"
 QWEN3_OMNI_ROUTER_WAIT_TIMEOUT = 180
-# BF16 thinker-TP=2 per-stage mem_fraction_static for the non-video (text) stages.
-# Text stages keep BF16: TP shards the 30 GB BF16 weights across both 80 GB cards,
-# and the small text activation TP replicates is cheap, so quality is preserved.
 QWEN3_OMNI_TP2_THINKER_MEM_FRACTION = "0.55"
 QWEN3_OMNI_TP2_TALKER_MEM_FRACTION = "0.20"
-# Base thinker context for the Qwen3-Omni servers.
 QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN = 32768
-# FP8 colocated 2-replica topology for the VIDEO stages. Mirrors the green H20 CI
-# (router + 2 colocated full replicas); the only change is BF16->FP8 so each full
-# ~30 GB FP8 replica fits one 80 GB H100. The router spreads concurrency across the
-# two data-parallel replicas, so each card carries only half the in-flight
-# video-prefill activation. A single TP=2 replica cannot do this: TP shards weights
-# (not activation), so the replicated video-prefill activation plus a talker +
-# thinker-rank-1 stacked on one card OOMs once concurrency climbs (empirically
-# GPU 1 reaches ~76 GB by concurrency 2, OOMs well before concurrency 10).
 QWEN3_OMNI_FP8_COLOCATED_CONFIG = "examples/configs/qwen3_omni_colocated_h100_fp8.yaml"
 QWEN3_OMNI_FP8_COLOCATED_VIDEO_ARGS = (
     f"--config {QWEN3_OMNI_FP8_COLOCATED_CONFIG} --colocate "
     f"--stages.0.factory-args.thinker-max-seq-len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN} "
     f"--stages.4.factory-args.thinker-max-seq-len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN}"
 )
+QWEN3_OMNI_BF16_COLOCATED_CONFIG = (
+    "examples/configs/qwen3_omni_colocated_h100_bf16.yaml"
+)
+QWEN3_OMNI_BF16_COLOCATED_VIDEO_ARGS = (
+    f"--config {QWEN3_OMNI_BF16_COLOCATED_CONFIG} --colocate "
+    f"--stages.0.factory-args.thinker-max-seq-len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN} "
+    f"--stages.4.factory-args.thinker-max-seq-len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN}"
+)
+QWEN3_OMNI_BF16_THINKER_CONFIG = "examples/configs/qwen3_omni_mmmu_h100.yaml"
+QWEN3_OMNI_BF16_THINKER_ARGS = f"--config {QWEN3_OMNI_BF16_THINKER_CONFIG}"
+QWEN3_OMNI_DISAGG_THINKER_MEM_FRACTION = "0.82"
+QWEN3_OMNI_DISAGG_TALKER_MEM_FRACTION = "0.40"
+QWEN3_OMNI_FP8_TP2_THINKER_MEM_FRACTION = "0.40"
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_router_server(tmp_path_factory: pytest.TempPathFactory):
-    """BF16 thinker-TP=2 Qwen3-Omni server (thinker sharded across GPU 0,1;
-    talker+code2wav on GPU 1), exposed as a non-router handle. Used by the
-    router-traffic CI benchmark."""
+def qwen3_omni_bf16_tp2_server(tmp_path_factory: pytest.TempPathFactory):
+    """BF16 thinker-TP=2; thinker_length, MMSU."""
     yield from _start_qwen3_omni_tp2(tmp_path_factory)
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_mmmu_server(tmp_path_factory: pytest.TempPathFactory):
-    """BF16 thinker-TP=2 Qwen3-Omni server (thinker sharded across GPU 0,1;
-    talker+code2wav on GPU 1), exposed as a non-router handle. Used by the
-    MMMU CI benchmark."""
-    yield from _start_qwen3_omni_tp2(tmp_path_factory)
+def qwen3_omni_bf16_colocated_thinker_server(tmp_path_factory: pytest.TempPathFactory):
+    """BF16 colocated-DP2, thinker-only (0.92); MMMU."""
+    yield from _start_qwen3_omni_bf16_colocated_router(
+        tmp_path_factory, worker_extra_args=QWEN3_OMNI_BF16_THINKER_ARGS
+    )
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_mmsu_server(tmp_path_factory: pytest.TempPathFactory):
-    """BF16 thinker-TP=2 Qwen3-Omni server (thinker sharded across GPU 0,1;
-    talker+code2wav on GPU 1), exposed as a non-router handle. Used by the
-    MMSU CI benchmark."""
-    yield from _start_qwen3_omni_tp2(tmp_path_factory)
+def qwen3_omni_bf16_colocated_server(tmp_path_factory: pytest.TempPathFactory):
+    """BF16 colocated-DP2, full thinker+talker; TTS."""
+    yield from _start_qwen3_omni_bf16_colocated_router(
+        tmp_path_factory, worker_extra_args=QWEN3_OMNI_BF16_COLOCATED_VIDEO_ARGS
+    )
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_thinker_server(tmp_path_factory: pytest.TempPathFactory):
-    """FP8 colocated 2-replica Qwen3-Omni router (one full FP8 replica per H100)
-    used by the video text CI benchmark
-    (see _start_qwen3_omni_fp8_colocated_router)."""
+def qwen3_omni_fp8_colocated_server(tmp_path_factory: pytest.TempPathFactory):
+    """FP8 colocated-DP2; MMMU-talker, MMSU-talker, Video-AMME (+talker)."""
     yield from _start_qwen3_omni_fp8_colocated_router(tmp_path_factory)
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_talker_server(tmp_path_factory: pytest.TempPathFactory):
-    """FP8 colocated 2-replica Qwen3-Omni router (one full FP8 replica per H100)
-    used by the video talker CI benchmark
-    (see _start_qwen3_omni_fp8_colocated_router)."""
-    yield from _start_qwen3_omni_fp8_colocated_router(tmp_path_factory)
+def qwen3_omni_bf16_disagg_server(tmp_path_factory: pytest.TempPathFactory):
+    """BF16 disaggregated (thinker GPU 0 / talker GPU 1); Video-MME (+talker)."""
+    yield from _start_qwen3_omni_disagg(tmp_path_factory)
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_fp8_talker_server_tp2(tmp_path_factory: pytest.TempPathFactory):
-    """FP8 colocated 2-replica Qwen3-Omni router used by the Video-AMME talker
-    stage. (The ``_tp2`` suffix is historical: this stage shipped as an FP8 TP=2
-    replica, but a single TP=2 replica OOMs the talker once concurrency stacks it
-    with thinker-rank-1 on one card, so it now uses the same FP8 colocated router
-    as the other video stages.) See _start_qwen3_omni_fp8_colocated_router."""
-    yield from _start_qwen3_omni_fp8_colocated_router(tmp_path_factory)
+def qwen3_omni_fp8_tp2_server(tmp_path_factory: pytest.TempPathFactory):
+    """FP8 thinker-TP=2; Video-AMME-talker (stage 11)."""
+    yield from _start_qwen3_omni_fp8_tp2(tmp_path_factory)
 
 
 def _start_qwen3_omni_fp8_colocated_router(tmp_path_factory: pytest.TempPathFactory):
-    """Start two FP8 colocated Qwen3-Omni replicas (one full ~30 GB FP8 model per
-    H100) behind the managed router -- the green H20 CI topology (router + 2
-    colocated replicas) with BF16 swapped for FP8 so each replica fits one 80 GB
-    card. The router spreads request concurrency across the two data-parallel
-    replicas, so each card carries only half the in-flight video-prefill
-    activation (the binding constraint). Used by every video stage (videomme /
-    videoamme, text + talker); validated no-OOM at the H20 concurrency (16) with
-    ~20 GB headroom per card (peak ~61/80 GB on both cards)."""
+    """Start 2 FP8 colocated replicas (one per H100) behind the managed router."""
     from tests.test_model.omni_router_utils import launch_managed_router
 
     with launch_managed_router(
@@ -141,23 +125,111 @@ def _start_qwen3_omni_fp8_colocated_router(tmp_path_factory: pytest.TempPathFact
         yield router
 
 
+def _start_qwen3_omni_bf16_colocated_router(
+    tmp_path_factory: pytest.TempPathFactory,
+    *,
+    worker_extra_args: str,
+):
+    """Start 2 BF16 colocated replicas (one per H100) behind the managed router."""
+    from tests.test_model.omni_router_utils import launch_managed_router
+
+    with launch_managed_router(
+        tmp_path_factory=tmp_path_factory,
+        model_path=QWEN3_OMNI_TEST_MODEL_PATH,
+        model_name=QWEN3_OMNI_MODEL_NAME,
+        worker_extra_args=worker_extra_args,
+        num_workers=2,
+        num_gpus_per_worker=1,
+    ) as router:
+        yield router
+
+
+def _start_qwen3_omni_disagg(tmp_path_factory: pytest.TempPathFactory):
+    """Start a BF16 disaggregated server (thinker GPU 0 / talker GPU 1) as a non-router handle."""
+    from tests.test_model.omni_router_utils import ManagedRouterHandle
+
+    extra_args = [
+        "--gpu-thinker",
+        "0",
+        "--gpu-image-encoder",
+        "0",
+        "--gpu-audio-encoder",
+        "0",
+        "--gpu-talker",
+        "1",
+        "--gpu-code2wav",
+        "1",
+        "--thinker-mem-fraction-static",
+        QWEN3_OMNI_DISAGG_THINKER_MEM_FRACTION,
+        "--talker-mem-fraction-static",
+        QWEN3_OMNI_DISAGG_TALKER_MEM_FRACTION,
+    ]
+    gen = _start_qwen3_omni_speech_server(
+        tmp_path_factory,
+        model_path=QWEN3_OMNI_TEST_MODEL_PATH,
+        extra_args=extra_args,
+        timeout=600,
+        log_prefix="server_logs_disagg_ci",
+        force_log=True,
+    )
+    server = next(gen)
+    try:
+        yield ManagedRouterHandle(
+            proc=server.proc,
+            port=server.port,
+            worker_ports=[server.port],
+            log_file=server.log_file,
+            is_router=False,
+        )
+    finally:
+        gen.close()
+
+
+def _start_qwen3_omni_fp8_tp2(tmp_path_factory: pytest.TempPathFactory):
+    """Start an FP8 thinker-TP=2 server (talker stacked on GPU 1) as a non-router handle."""
+    from tests.test_model.omni_router_utils import ManagedRouterHandle
+
+    extra_args = [
+        "--thinker-tp-size",
+        "2",
+        "--gpu-thinker-tp",
+        "0,1",
+        "--gpu-talker",
+        "1",
+        "--gpu-code2wav",
+        "1",
+        "--thinker-mem-fraction-static",
+        QWEN3_OMNI_FP8_TP2_THINKER_MEM_FRACTION,
+        "--talker-mem-fraction-static",
+        QWEN3_OMNI_TP2_TALKER_MEM_FRACTION,
+    ]
+    gen = _start_qwen3_omni_speech_server(
+        tmp_path_factory,
+        model_path=QWEN3_OMNI_FP8_TEST_MODEL_PATH,
+        extra_args=extra_args,
+        timeout=600,
+        log_prefix="server_logs_fp8_tp2_ci",
+        force_log=True,
+    )
+    server = next(gen)
+    try:
+        yield ManagedRouterHandle(
+            proc=server.proc,
+            port=server.port,
+            worker_ports=[server.port],
+            log_file=server.log_file,
+            is_router=False,
+        )
+    finally:
+        gen.close()
+
+
 def _start_qwen3_omni_tp2(
     tmp_path_factory: pytest.TempPathFactory,
     *,
     thinker_max_seq_len: int = QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN,
 ):
-    """Start a BF16 thinker-TP=2 Qwen3-Omni server (2x H100: thinker sharded
-    across GPU 0,1; talker+code2wav on GPU 1) and expose it through a
-    ManagedRouterHandle-compatible handle (is_router=False) so the existing
-    router-based CI tests work unchanged on the single TP=2 replica.
-
-    Used by the non-video (text) stages: TP shards the 30 GB BF16 weights across
-    the two 80 GB cards, and the small text activation TP replicates is cheap, so
-    BF16 quality is preserved. (The video stages instead use the FP8 colocated
-    router -- see _start_qwen3_omni_fp8_colocated_router -- because their heavy
-    per-video prefill activation must be split data-parallel across cards, which a
-    single TP=2 replica cannot do: TP replicates the activation on both ranks.)
-    """
+    """Start a BF16 thinker-TP=2 server as a non-router handle."""
     from tests.test_model.omni_router_utils import ManagedRouterHandle
 
     model_path = QWEN3_OMNI_TEST_MODEL_PATH

@@ -81,12 +81,12 @@ class _TalkerEvalArtifacts:
 
 @pytest.mark.benchmark
 def test_thinker_tp2_actually_applied(
-    qwen3_omni_fp8_talker_server_tp2: ServerHandle,
+    qwen3_omni_fp8_tp2_server: ServerHandle,
 ) -> None:
     """Confirm the thinker stage actually came up at tp_size=2.
     Prevents silent fallback to TP=1
     """
-    log_file = qwen3_omni_fp8_talker_server_tp2.log_file
+    log_file = qwen3_omni_fp8_tp2_server.log_file
     checks = MetricCheckCollector("Thinker TP=2 server log checks")
     checks.check(
         log_file is not None and log_file.exists(),
@@ -112,13 +112,13 @@ def test_thinker_tp2_actually_applied(
 
 @pytest.fixture(scope="module")
 def talker_eval_artifacts(
-    qwen3_omni_fp8_talker_server_tp2: ServerHandle,
+    qwen3_omni_fp8_tp2_server: ServerHandle,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> _TalkerEvalArtifacts:
     output_dir = str(tmp_path_factory.mktemp("videoamme_audio"))
     config = VideoEvalConfig(
         model="qwen3-omni",
-        port=qwen3_omni_fp8_talker_server_tp2.port,
+        port=qwen3_omni_fp8_tp2_server.port,
         max_samples=MAX_SAMPLES,
         max_tokens=MAX_TOKENS,
         max_concurrency=CONCURRENCY,
@@ -145,11 +145,11 @@ def talker_eval_artifacts(
 
 @pytest.fixture(scope="module")
 def wer_eval_artifacts(
-    qwen3_omni_fp8_talker_server_tp2: ServerHandle,
+    qwen3_omni_fp8_tp2_server: ServerHandle,
     talker_eval_artifacts: _TalkerEvalArtifacts,
 ) -> _TalkerEvalArtifacts:
     """Reuse saved benchmark audio for WER after freeing the talker server GPU."""
-    stop_server(qwen3_omni_fp8_talker_server_tp2.proc)
+    stop_server(qwen3_omni_fp8_tp2_server.proc)
     wait_for_gpu_memory_release()
     return talker_eval_artifacts
 

@@ -36,7 +36,7 @@ stage_overrides:
   thinker:
     runtime:
       resources:
-        total_gpu_memory_fraction: 0.55
+        total_gpu_memory_fraction: 0.55  # effective 0.50 after default encoder_mem_reserve 0.05
 
   talker_ar:
     runtime:
