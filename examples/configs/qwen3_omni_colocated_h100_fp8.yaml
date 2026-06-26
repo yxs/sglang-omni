@@ -1,21 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-#
-# Colocated Qwen3-Omni launcher config for the 2x H100 (80 GB) CI video stages.
-#
-# Mirrors examples/configs/qwen3_omni_colocated_h20.yaml (the green single-H20 CI
-# profile), with two changes forced by the 80 GB card:
-#   1. model_path -> the FP8 thinker checkpoint. The BF16 30B thinker (~57 GB
-#      weights) does not fit one 80 GB card colocated; the FP8 thinker (~30 GB)
-#      does, with room for KV + per-video prefill activation.
-#   2. thinker fraction 0.75 -> 0.55. FP8 halves the thinker weights, so a smaller
-#      static budget still covers weights + a healthy KV pool, and the freed 0.20
-#      (~16 GB) is left to the per-video prefill activation peak.
-#
-# Two of these replicas run behind the managed router (one per card), so the
-# router spreads request concurrency across both cards -- each card carries only
-# half the in-flight video-prefill activation. (A single TP=2 replica instead
-# replicates that activation on both ranks and stacks talker + thinker-rank-1 on
-# one card, which OOMs once concurrency climbs.)
+# FP8 colocated profile for the H100 video CI stages (2 DP replicas behind the router).
 
 config_cls: Qwen3OmniSpeechColocatedPipelineConfig
 name: qwen3-omni-colocated-h100-fp8

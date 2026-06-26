@@ -13,8 +13,6 @@ env:
     ${{ github.event_name == 'pull_request'
         && format('/github/home/pr-{0}', github.event.pull_request.number)
         || format('/github/home/run-{0}', github.run_id) }}
-  # All omni stages now run thinker-TP=2 with talker+code2wav colocated on GPU 1;
-  # expandable_segments reduces allocator fragmentation under colocation (issue #765).
   PYTORCH_ALLOC_CONF: expandable_segments:True
 
 # Invoked by omni-ci.yaml after TTS CI (last benchmark suite in the omni-ci
