@@ -71,12 +71,6 @@ QWEN3_OMNI_FP8_TP2_THINKER_MEM_FRACTION = "0.40"
 
 
 @pytest.fixture(scope="module")
-def qwen3_omni_bf16_tp2_server(tmp_path_factory: pytest.TempPathFactory):
-    """BF16 thinker-TP=2; thinker_length, MMSU."""
-    yield from _start_qwen3_omni_tp2(tmp_path_factory)
-
-
-@pytest.fixture(scope="module")
 def qwen3_omni_bf16_colocated_thinker_server(tmp_path_factory: pytest.TempPathFactory):
     """BF16 colocated-DP2, thinker-only (0.92); MMMU."""
     yield from _start_qwen3_omni_bf16_colocated_router(

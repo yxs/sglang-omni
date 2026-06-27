@@ -89,13 +89,13 @@ class _TalkerEvalArtifacts:
 
 @pytest.fixture(scope="module")
 def talker_eval_artifacts(
-    qwen3_omni_fp8_colocated_server: ManagedRouterHandle,
+    qwen3_omni_bf16_disagg_server: ManagedRouterHandle,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> _TalkerEvalArtifacts:
     output_dir = str(tmp_path_factory.mktemp("mmmu_audio"))
     config = MMMUEvalConfig(
         model="qwen3-omni",
-        port=qwen3_omni_fp8_colocated_server.port,
+        port=qwen3_omni_bf16_disagg_server.port,
         max_samples=MAX_SAMPLES,
         max_tokens=MAX_TOKENS,
         max_concurrency=CONCURRENCY,
@@ -108,7 +108,7 @@ def talker_eval_artifacts(
         timeout_s=500,
     )
     with router_worker_traffic_guard(
-        qwen3_omni_fp8_colocated_server,
+        qwen3_omni_bf16_disagg_server,
         label="Qwen3-Omni MMMU Talker",
     ) as router_guard:
         results = asyncio.run(run_mmmu_eval(config, compute_wer=False))
@@ -126,11 +126,11 @@ def talker_eval_artifacts(
 
 @pytest.fixture(scope="module")
 def wer_eval_artifacts(
-    qwen3_omni_fp8_colocated_server: ManagedRouterHandle,
+    qwen3_omni_bf16_disagg_server: ManagedRouterHandle,
     talker_eval_artifacts: _TalkerEvalArtifacts,
 ) -> _TalkerEvalArtifacts:
     """Reuse saved benchmark audio for WER after freeing the talker server GPU."""
-    qwen3_omni_fp8_colocated_server.stop()
+    qwen3_omni_bf16_disagg_server.stop()
     wait_for_gpu_memory_release()
     return talker_eval_artifacts
 

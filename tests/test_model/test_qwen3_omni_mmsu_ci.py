@@ -77,13 +77,15 @@ def _build_args(port: int, output_dir: str) -> argparse.Namespace:
 
 @pytest.mark.benchmark
 def test_mmsu_accuracy_and_speed(
-    qwen3_omni_bf16_tp2_server: ManagedRouterHandle,
+    qwen3_omni_bf16_colocated_thinker_server: ManagedRouterHandle,
     tmp_path: Path,
 ) -> None:
     """Run MMSU eval and assert accuracy and speed meet thresholds."""
-    args = _build_args(qwen3_omni_bf16_tp2_server.port, str(tmp_path / "mmsu"))
+    args = _build_args(
+        qwen3_omni_bf16_colocated_thinker_server.port, str(tmp_path / "mmsu")
+    )
     with router_worker_traffic_guard(
-        qwen3_omni_bf16_tp2_server,
+        qwen3_omni_bf16_colocated_thinker_server,
         label="Qwen3-Omni MMSU",
     ) as router_guard:
         results = asyncio.run(run_mmsu(args))
