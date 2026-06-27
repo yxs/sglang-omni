@@ -103,6 +103,12 @@ def qwen3_omni_fp8_tp2_server(tmp_path_factory: pytest.TempPathFactory):
     yield from _start_qwen3_omni_fp8_tp2(tmp_path_factory)
 
 
+@pytest.fixture(scope="module")
+def qwen3_omni_bf16_tp2_server(tmp_path_factory: pytest.TempPathFactory):
+    """BF16 thinker-TP=2 (short context); thinker_length context-length checks."""
+    yield from _start_qwen3_omni_tp2(tmp_path_factory, thinker_max_seq_len=128)
+
+
 def _start_qwen3_omni_fp8_colocated_router(tmp_path_factory: pytest.TempPathFactory):
     """Start 2 FP8 colocated replicas (one per H100) behind the managed router."""
     from tests.test_model.omni_router_utils import launch_managed_router

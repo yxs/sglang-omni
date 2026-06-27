@@ -14,13 +14,10 @@ import sys
 import pytest
 import requests
 
-from tests.test_model.conftest import _start_qwen3_omni_tp2
 from tests.test_model.omni_router_utils import ManagedRouterHandle
 from tests.utils import disable_proxy
 
 MODEL_NAME = "qwen3-omni"
-THINKER_MAX_SEQ_LEN = 128
-ROUTER_WAIT_TIMEOUT = 180
 REQUEST_TIMEOUT = 120
 
 pytestmark = pytest.mark.benchmark
@@ -37,16 +34,11 @@ def _post_chat(
         )
 
 
-@pytest.fixture(scope="module")
-def router_server(tmp_path_factory: pytest.TempPathFactory):
-    yield from _start_qwen3_omni_tp2(
-        tmp_path_factory, thinker_max_seq_len=THINKER_MAX_SEQ_LEN
-    )
-
-
-def test_overlong_prompt_returns_400(router_server: ManagedRouterHandle) -> None:
+def test_overlong_prompt_returns_400(
+    qwen3_omni_bf16_tp2_server: ManagedRouterHandle,
+) -> None:
     resp = _post_chat(
-        router_server.port,
+        qwen3_omni_bf16_tp2_server.port,
         {
             "model": MODEL_NAME,
             "messages": [
@@ -66,9 +58,11 @@ def test_overlong_prompt_returns_400(router_server: ManagedRouterHandle) -> None
     assert "is longer than the model's context length" in body["detail"]
 
 
-def test_total_token_overflow_returns_400(router_server: ManagedRouterHandle) -> None:
+def test_total_token_overflow_returns_400(
+    qwen3_omni_bf16_tp2_server: ManagedRouterHandle,
+) -> None:
     resp = _post_chat(
-        router_server.port,
+        qwen3_omni_bf16_tp2_server.port,
         {
             "model": MODEL_NAME,
             "messages": [{"role": "user", "content": "hello"}],
@@ -85,9 +79,11 @@ def test_total_token_overflow_returns_400(router_server: ManagedRouterHandle) ->
     )
 
 
-def test_length_finish_reason_is_preserved(router_server: ManagedRouterHandle) -> None:
+def test_length_finish_reason_is_preserved(
+    qwen3_omni_bf16_tp2_server: ManagedRouterHandle,
+) -> None:
     resp = _post_chat(
-        router_server.port,
+        qwen3_omni_bf16_tp2_server.port,
         {
             "model": MODEL_NAME,
             "messages": [

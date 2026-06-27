@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# Note (Xuesong): FP8 colocated profile for the H100 video-CI router stages (2 DP replicas behind the router).
-# Distinct from examples/configs/qwen3_omni_fp8_colocated.yaml (thinker 0.75); this H100 video-CI profile uses 0.55.
+# Note (Xuesong): FP8 colocated profile for the H100 video-CI router stages (2 DP replicas);
+#   distinct from examples/configs/qwen3_omni_fp8_colocated.yaml (thinker 0.75) — this profile uses 0.55.
 
 config_cls: Qwen3OmniSpeechColocatedPipelineConfig
 name: qwen3-omni-colocated-h100-fp8
