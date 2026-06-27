@@ -45,7 +45,6 @@ QWEN3_OMNI_FP8_TEST_MODEL_PATH = os.environ.get(
     "SGLANG_OMNI_TEST_QWEN3_FP8_MODEL", QWEN3_OMNI_FP8_MODEL_PATH
 )
 QWEN3_OMNI_MODEL_NAME = "qwen3-omni"
-QWEN3_OMNI_ROUTER_WAIT_TIMEOUT = 180
 QWEN3_OMNI_TP2_THINKER_MEM_FRACTION = "0.55"
 QWEN3_OMNI_TP2_TALKER_MEM_FRACTION = "0.20"
 QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN = 32768
@@ -100,7 +99,7 @@ def qwen3_omni_bf16_disagg_server(tmp_path_factory: pytest.TempPathFactory):
 
 @pytest.fixture(scope="module")
 def qwen3_omni_fp8_tp2_server(tmp_path_factory: pytest.TempPathFactory):
-    """FP8 thinker-TP=2; Video-AMME-talker (stage 11)."""
+    """FP8 thinker-TP=2; Video-AMME-talker (stage 10)."""
     yield from _start_qwen3_omni_fp8_tp2(tmp_path_factory)
 
 
