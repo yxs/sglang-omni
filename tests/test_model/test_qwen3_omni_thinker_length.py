@@ -14,6 +14,7 @@ import sys
 import pytest
 import requests
 
+from tests.test_model.conftest import _start_qwen3_omni_tp2
 from tests.test_model.omni_router_utils import ManagedRouterHandle
 from tests.utils import disable_proxy
 
@@ -38,8 +39,6 @@ def _post_chat(
 
 @pytest.fixture(scope="module")
 def router_server(tmp_path_factory: pytest.TempPathFactory):
-    from tests.test_model.conftest import _start_qwen3_omni_tp2
-
     yield from _start_qwen3_omni_tp2(
         tmp_path_factory, thinker_max_seq_len=THINKER_MAX_SEQ_LEN
     )

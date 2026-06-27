@@ -87,7 +87,7 @@ def qwen3_omni_bf16_colocated_server(tmp_path_factory: pytest.TempPathFactory):
 
 @pytest.fixture(scope="module")
 def qwen3_omni_fp8_colocated_server(tmp_path_factory: pytest.TempPathFactory):
-    """FP8 colocated-DP2; MMMU-talker, MMSU-talker, Video-AMME (+talker)."""
+    """FP8 colocated-DP2; MMMU, Video-AMME."""
     yield from _start_qwen3_omni_fp8_colocated_router(tmp_path_factory)
 
 
@@ -99,7 +99,7 @@ def qwen3_omni_bf16_disagg_server(tmp_path_factory: pytest.TempPathFactory):
 
 @pytest.fixture(scope="module")
 def qwen3_omni_fp8_tp2_server(tmp_path_factory: pytest.TempPathFactory):
-    """FP8 thinker-TP=2; Video-AMME-talker (stage 10)."""
+    """FP8 thinker-TP=2; MMSU-talker, Video-AMME-talker."""
     yield from _start_qwen3_omni_fp8_tp2(tmp_path_factory)
 
 
