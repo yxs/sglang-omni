@@ -48,7 +48,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_thinker_length.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -84,7 +84,7 @@ jobs:
           source omni/bin/activate
           python -m benchmarks.metrics.speaker_similarity_assets --warm-cache
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           SEEDTTS_SIM_CACHE_DIR: /github/home/seedtts-wavlm-sim
 
       - name: Run TTS CI (speed + WER + SIM)
@@ -95,7 +95,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_tts_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           SGLANG_SEEDTTS50_DIR: /github/home/seedtts-50
           SEEDTTS_SIM_CACHE_DIR: /github/home/seedtts-wavlm-sim
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
@@ -141,7 +141,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_mmmu_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -183,7 +183,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_mmmu_talker_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -225,7 +225,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_mmsu_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -268,7 +268,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_mmsu_talker_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -310,7 +310,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_videomme_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -352,7 +352,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_videomme_talker_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -394,7 +394,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_videoamme_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup
@@ -438,7 +438,7 @@ jobs:
           bash .github/scripts/run_flaky_pytest.sh \
             pytest tests/test_model/test_qwen3_omni_videoamme_talker_tp2_ci.py -v -s -x
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           TORCHINDUCTOR_CACHE_DIR: ${{ env.OMNI_CI_HOME }}/.torchinductor
 
       - name: Post-stage cleanup

@@ -128,7 +128,7 @@ jobs:
       - name: Ensure CI model weights
         shell: bash
         env:
-          HF_ENDPOINT: https://hf-mirror.com
+          HF_ENDPOINT: https://huggingface.co
           HF_TOKEN: ${{ secrets.BOSON_HF_TOKEN }}
         run: |
           bash .github/scripts/ensure_hf_models.sh omni \
