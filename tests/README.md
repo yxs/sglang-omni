@@ -178,7 +178,7 @@ Relevant model CI ownership:
   GPUs, then transcribe saved WAVs through the ASR router. Qwen3-Omni
   talker/TTS generation concurrency is 16, including the
   `videoamme_talker_tp2` stage; ASR/WER transcription concurrency is 32.
-- CI env alignment on the H20 repro host: `source .github/scripts/ci_env.sh`
+- CI env alignment on the H100 repro host: `source .github/scripts/ci_env.sh`
   then `source omni/bin/activate`.
   Omni CI (`omni-ci.yaml`) runs benchmark suites sequentially after one shared
   setup: TTS CI → Qwen3-Omni CI → PR Test (`test.yaml` unit tests). A failure in
