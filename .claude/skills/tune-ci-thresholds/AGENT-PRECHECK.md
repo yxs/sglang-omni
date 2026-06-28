@@ -48,7 +48,7 @@ After changing threshold literals in `tests/test_model/tts_ci_config.py`, run
 `tune.py --model tts discover` so `stages.yaml` sources stay aligned with
 `calibration_presets.*.constant_filter`.
 
-**⚠️ After any `discover`, verify `expected_samples` for full-dataset stages.**
+**After any `discover`, verify `expected_samples` for full-dataset stages.**
 For a stage whose only `context_var` is `CONCURRENCY` (no `MAX_SAMPLES`) — e.g.
 `mmmu_accuracy`/`mmmu_speed`, `mmsu_accuracy`/`mmsu_speed` — `discover` wrongly
 sets `expected_samples = CONCURRENCY` (16), so the completion gate never passes
