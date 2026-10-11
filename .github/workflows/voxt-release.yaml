@@ -9,6 +9,7 @@ name: Voxt Release
 on:
   push:
     tags: ["voxt-v*"]
+    branches: ["voxt-release-ci-test"]
   workflow_dispatch:
 
 concurrency:
