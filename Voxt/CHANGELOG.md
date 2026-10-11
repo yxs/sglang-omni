@@ -6,6 +6,29 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-10-12
+
+### English
+
+#### Changed
+- Local speech recognition runs on SGLang-Omni's native MLX runtime, which ships inside the app, for Whisper large-v3-turbo, large-v3 and small; Qwen3-ASR 0.6B (4-bit), 1.7B (6-bit) and 1.7B (8-bit); Cohere Transcribe; MOSS-Transcribe-Diarize; Parakeet TDT 0.6B v3; Nemotron 3.5 ASR Streaming 0.6B (8-bit); and SenseVoice Small.
+- Voice activity detection (Silero VAD v6) and speaker diarization (Sortformer v2.1) also run on the native runtime.
+- Voxt now requires a Mac with Apple Silicon and macOS 26.2 or later.
+
+### 简体中文
+
+#### 改进
+- 本地语音识别改为在应用内置的 SGLang-Omni 原生 MLX 运行时上运行，覆盖 Whisper large-v3-turbo、large-v3 和 small；Qwen3-ASR 0.6B（4-bit）、1.7B（6-bit）和 1.7B（8-bit）；Cohere Transcribe；MOSS-Transcribe-Diarize；Parakeet TDT 0.6B v3；Nemotron 3.5 ASR Streaming 0.6B（8-bit）；SenseVoice Small。
+- 语音活动检测（Silero VAD v6）和说话人分离（Sortformer v2.1）也改为在原生运行时上运行。
+- Voxt 现在需要搭载 Apple 芯片的 Mac，以及 macOS 26.2 或更高版本。
+
+### 日本語
+
+#### 変更
+- ローカル音声認識は、アプリに同梱された SGLang-Omni のネイティブ MLX ランタイムで動作するようになりました。対象は Whisper large-v3-turbo、large-v3、small、Qwen3-ASR 0.6B（4-bit）、1.7B（6-bit）、1.7B（8-bit）、Cohere Transcribe、MOSS-Transcribe-Diarize、Parakeet TDT 0.6B v3、Nemotron 3.5 ASR Streaming 0.6B（8-bit）、SenseVoice Small です。
+- 音声区間検出（Silero VAD v6）と話者分離（Sortformer v2.1）もネイティブランタイムで動作します。
+- Voxt の動作には Apple シリコン搭載の Mac と macOS 26.2 以降が必要になりました。
+
 ## [1.15.0] - 2026-09-26
 
 ### English

@@ -62,9 +62,8 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-## Local packages and reserved CI release automation
+## Local packages and release automation
 
-The repository currently does not depend on CI to create installable packages.
 The root `Voxt Mac CI` workflow runs the native runtime's golden and API tests
 and Voxt's Omni unit tests on the Apple Silicon runner for pull requests with
 the `run-ci` label. Its package job runs only when the repository variable
@@ -85,36 +84,38 @@ Voxt/tools/package_local_app.sh \
 The command creates a DMG, ZIP, PKG, and SHA-256 files under a timestamped
 directory. To install the locally built app for manual verification, append
 `--install --open`. If a Developer ID identity is available locally, omit
-`--no-sign` to produce a locally signed package, and pass the Developer ID
-provisioning profile with `--provisioning-profile`; without it, the signed app
-cannot use the Keychain. These local packages are for
-development and testing; they are not Apple-notarized releases.
+`--no-sign` to produce a signed package. Pass the Developer ID provisioning
+profile with `--provisioning-profile`; without it, the signed app cannot use
+the Keychain. Pass an App Store Connect API key with `--notary-key`,
+`--notary-key-id` and `--notary-issuer` to notarize the app, the DMG and the
+PKG and staple their tickets.
 
-The `Voxt macOS Notarized Package` workflow is also reserved and disabled by
-default. After the Apple credentials are configured, enable it by setting
-`VOXT_ENABLE_NOTARIZED_RELEASE=true`, then run it manually. It builds the
-Native Omni runtime, signs the app and installer with Developer ID, submits
-the ZIP, PKG, and DMG to Apple notarization, staples the PKG and DMG tickets,
-and uploads checksums with the artifacts.
+The root `Voxt Release` workflow runs when a `voxt-vX.Y.Z` tag is pushed. The
+tag must match `MARKETING_VERSION`. On GitHub's macOS runner it builds the
+Native Omni runtime and Voxt, signs and notarizes them as above, and uploads
+the ZIP, DMG, PKG and their SHA-256 files to a draft release. The notes are
+the English section of the version's `CHANGELOG.md` entry. A maintainer
+reviews and publishes the draft, which is never marked Latest. A manual run
+without a tag only builds an unsigned package.
 
-Configure these GitHub Actions secrets before running the workflow:
+The workflow reads these secrets from the `voxt-release` environment:
 
 - `DEVELOPER_ID_APP_CERT_P12`: base64-encoded Developer ID Application certificate.
 - `DEVELOPER_ID_APP_CERT_PASSWORD`: password for that certificate.
 - `DEVELOPER_ID_INSTALLER_CERT_P12`: base64-encoded Developer ID Installer certificate.
 - `DEVELOPER_ID_INSTALLER_CERT_PASSWORD`: password for that certificate.
-- `DEVELOPER_ID_APP_IDENTITY`: exact Developer ID Application identity.
 - `DEVELOPER_ID_INSTALLER_IDENTITY`: exact Developer ID Installer identity.
-- `KEYCHAIN_PASSWORD`: temporary CI keychain password.
+- `DEVELOPER_ID_PROVISIONING_PROFILE`: base64-encoded Developer ID provisioning profile.
 - `APPLE_NOTARIZATION_KEY`: App Store Connect API key contents (`.p8`).
 - `APPLE_NOTARIZATION_KEY_ID`: App Store Connect API key ID.
 - `APPLE_NOTARIZATION_ISSUER`: App Store Connect API issuer ID.
 
-On a Mac, certificate data can be encoded for a secret with:
+On a Mac, the certificates and the profile can be encoded for a secret with:
 
 ```bash
 base64 -i developer-id-application.p12 | tr -d '\n'
 base64 -i developer-id-installer.p12 | tr -d '\n'
+base64 -i voxt.provisionprofile | tr -d '\n'
 ```
 
 The model weights are not included in the DMG. After installation, Voxt
